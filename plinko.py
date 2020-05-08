@@ -13,10 +13,6 @@ DT = 0.01        # s
 vo = 10.0  # m/s
 launch_angle = -27 * math.pi / 180  # radians
 
-# peg_center = [4.523, -3.25]
-peg_center = [4.569, -3.25]
-peg_radius = 0.25
-
 print("INPUTS:")
 print('  launch angle', math.degrees(launch_angle))
 print('  initial vel ', vo)
@@ -25,36 +21,50 @@ print('')
 
 
 # --------------------------------------------------------------------------------------------------
+class Peg:
+    def __init__(self, x, y, r):
+        self.center = (x, y)
+        self.radius = r
+
+
+pegs = []
+pegs.append(Peg(4.569, -3.250, 0.25))
+# pegs.append(Peg(5.250, -6.000, 0.25))
+
+
+# --------------------------------------------------------------------------------------------------
 def make_plot():
     # box_x = [4.0, 4.5, 4.5, 4.0, 4.0]
     # box_y = [-3.5, -3.5, -3.0, -3.0, -3.5]
     # plt.plot(box_x, box_y)
-    circle_x, circle_x2, circle_y = make_circle_points(peg_center, peg_radius)
-    plt.plot(all_x, all_y)
+    for peg in pegs:
+        circle_x, circle_x2, circle_y = make_circle_points(peg)
+        plt.plot(circle_x, circle_y, 'k')
+        plt.plot(circle_x2, circle_y, 'k')
 
-    plt.plot(disc_x, disc_y, 'x')
-    plt.plot(circle_x, circle_y)
-    plt.plot(circle_x2, circle_y)
+    # plt.plot(all_x, all_y)
+    # plt.plot(disc_x, disc_y, 'x')
+    plt.plot(disc_x, disc_y, '-')
     plt.axis('equal')
     plt.show()
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_ricochet_angle(x, y):
+def calc_ricochet_angle(x, y, peg):
     """"""
-    phi = math.atan2(y - peg_center[1], x - peg_center[0])
+    phi = math.atan2(y - peg.center[1], x - peg.center[0])
     alpha = phi + new_angle - math.pi
     return new_angle + 2 * alpha
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_time_step_to_impact(time, ddt):
+def calc_time_step_to_impact(time, ddt, peg):
     """find ddt that would have resulted in ball just hitting the peg"""
     t_prev = time - ddt
     t_curr = time
-    d_prev = math.sqrt((x_prev - peg_center[0])**2 + (y_prev - peg_center[1])**2)
+    d_prev = math.sqrt((x_prev - peg.center[0])**2 + (y_prev - peg.center[1])**2)
     d_curr = dist_to_center
-    t_need = t_prev - (t_prev - t_curr) * (d_prev - peg_radius) / (d_prev - d_curr)
+    t_need = t_prev - (t_prev - t_curr) * (d_prev - peg.radius) / (d_prev - d_curr)
     time -= ddt
     ddt = t_need - t_prev
     # print("    stuff", t_prev, t_curr, d_prev, d_curr, t_need)
@@ -63,17 +73,10 @@ def calc_time_step_to_impact(time, ddt):
 
 
 # --------------------------------------------------------------------------------------------------
-def get_circle_x(yyy):
-    x1 = math.sqrt(peg_radius**2 - (yyy - peg_center[1])**2) + peg_center[0]
-    x2 = -1*math.sqrt(peg_radius**2 - (yyy - peg_center[1])**2) + peg_center[0]
-    return x1, x2
-
-
-# --------------------------------------------------------------------------------------------------
-def make_circle_points(circle_center, circle_radius):
+def make_circle_points(peg):
     """only used for plotting, not analysis"""
-    yyy_min = circle_center[1] - circle_radius
-    yyy_max = circle_center[1] + circle_radius
+    yyy_min = peg.center[1] - peg.radius
+    yyy_max = peg.center[1] + peg.radius
 
     dy = (yyy_max - yyy_min) / 200
     yyy = yyy_min - dy
@@ -86,7 +89,9 @@ def make_circle_points(circle_center, circle_radius):
         yyy += dy
         if yyy > yyy_max:
             break
-        xxx, xxx2 = get_circle_x(yyy)
+
+        xxx = math.sqrt(peg.radius**2 - (yyy - peg.center[1])**2) + peg.center[0]
+        xxx2 = -1*math.sqrt(peg.radius**2 - (yyy - peg.center[1])**2) + peg.center[0]
         circle_x.append(xxx)
         circle_x2.append(xxx2)
         circle_y.append(yyy)
@@ -184,19 +189,20 @@ if __name__ == "__main__":
         y += y_rel
 
         # check if inside circle
-        dist_to_center = math.sqrt((x - peg_center[0])**2 + (y - peg_center[1])**2)
-        if dist_to_center < peg_radius - RTOL:
+        peg = pegs[0]
+        dist_to_center = math.sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
+        if dist_to_center < peg.radius - RTOL:
             # print(f"contact! {dist_to_center:10.6f} {x:10.6f} {y:10.6f}")
             # find ddt that would have resulted in ball *just* hitting the peg
-            time, ddt = calc_time_step_to_impact(time, ddt)
+            time, ddt = calc_time_step_to_impact(time, ddt, pegs[0])
             x -= x_rel
             y -= y_rel
             continue
 
-        if (peg_radius - RTOL) <= dist_to_center <= (peg_radius + RTOL):
+        if (peg.radius - RTOL) <= dist_to_center <= (peg.radius + RTOL):
             # print("exact!!!!!!!!!")
             # calculate rebound angle
-            new_angle = calc_ricochet_angle(x, y)
+            new_angle = calc_ricochet_angle(x, y, pegs[0])
 
         disc_t.append(time)
         disc_x.append(x)
