@@ -60,18 +60,17 @@ def calc_ricochet_angle(x, y, vel_angle, peg):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_time_step_to_impact(time, ddt, peg):
+def calc_time_step_to_impact(t_curr, ddt, peg):
     """find ddt that would have resulted in ball just hitting the peg"""
-    t_prev = time - ddt
-    t_curr = time
     d_prev = math.sqrt((x_prev - peg.center[0])**2 + (y_prev - peg.center[1])**2)
     d_curr = dist_to_center
+
+    t_prev = t_curr - ddt
     t_need = t_prev - (t_prev - t_curr) * (d_prev - peg.radius) / (d_prev - d_curr)
-    time -= ddt
+    t_curr -= ddt
     ddt = t_need - t_prev
-    # print("    stuff", t_prev, t_curr, d_prev, d_curr, t_need)
-    # print('    for next time, ', time, ddt, time + ddt)
-    return time, ddt
+
+    return t_curr, ddt
 
 
 # --------------------------------------------------------------------------------------------------
@@ -94,6 +93,7 @@ def make_circle_points(peg):
 # --------------------------------------------------------------------------------------------------
 def make_plot(puck_data):
     """"""
+    plt.axis('equal')
     for peg in pegs:
         xx, yy = make_circle_points(peg)
         plt.plot(peg.center[0], peg.center[1], 'o')
@@ -101,17 +101,24 @@ def make_plot(puck_data):
 
     # plt.plot(all_x, all_y)
     # plt.plot(puck_data.x, puck_data.y, 'x-')
-    plt.plot(puck_data.x, puck_data.y, '-')
+    # plt.plot(puck_data.x, puck_data.y, '-')
 
-    plt.axis('equal')
+    sf = 1.0
+    for i in range(1, len(puck_data.t)):
+        delta_t = puck_data.t[i] - puck_data.t[i-1]
+        # time.sleep(delta_t)
+        plt.pause(delta_t * sf)
+        plt.plot(puck_data.x[i], puck_data.y[i], 'r.')
+        plt.draw()
+
     plt.show()
 
 
 # --------------------------------------------------------------------------------------------------
-def get_position(vel, angle, time, accel):
+def get_position(vel, angle, t, accel):
     """"""
-    x = vel * time * math.cos(angle)
-    y = vel * time * math.sin(angle) - (0.5 * accel * time**2)
+    x = vel * t * math.cos(angle)
+    y = vel * t * math.sin(angle) - (0.5 * accel * t**2)
     return x, y
 
 
@@ -133,14 +140,14 @@ if __name__ == "__main__":
     # print("                 time         x         y     angle       vel")
     max_i = math.floor(MAX_TIME / DT) + 1
     for i in range(max_i):
-        time = DT * i
-        x, y = get_position(vo, launch_angle, time, GC)
+        t = DT * i
+        x, y = get_position(vo, launch_angle, t, GC)
         vx = vo * math.cos(launch_angle)
-        vy = vo * math.sin(launch_angle) - GC * time
+        vy = vo * math.sin(launch_angle) - GC * t
         vel = math.sqrt(vx**2 + vy**2)
         angle = math.atan2(y, x)
-        # print(f"continuous {time:9.4f} {x:9.4f} {y:9.4f} {math.degrees(angle):16.8f} {vel:16.8f}")
-        all_t.append(time)
+        # print(f"continuous {t:9.4f} {x:9.4f} {y:9.4f} {math.degrees(angle):16.8f} {vel:16.8f}")
+        all_t.append(t)
         all_x.append(x)
         all_y.append(y)
 
@@ -151,19 +158,19 @@ if __name__ == "__main__":
     vel = vo
     angle = launch_angle
     ddt = DT
-    time = 0
+    t = 0
     x_prev = 0
     y_prev = 0
 
-    puck_data.append(time, x, y, vel)
+    puck_data.append(t, x, y, vel)
 
     sys.stdout.write("     time         x         y     angle       vel     accel\n")
     while True:
-        if time > MAX_TIME:
-            sys.stdout.write(f'breaking at time = {time:12.8f}\n')
+        if t > MAX_TIME:
+            sys.stdout.write(f'breaking at time = {t:12.8f}\n')
             break
 
-        time += ddt
+        t += ddt
 
         # do not exceed terminal velocity
         if vel >= TERM_VEL:
@@ -199,7 +206,7 @@ if __name__ == "__main__":
             if dist_to_center < peg.radius - RTOL:
                 print(f"contact! {i} {dist_to_center:10.6f} {x:10.6f} {y:10.6f}")
                 # find ddt that would have resulted in ball *just* hitting the peg
-                time, ddt = calc_time_step_to_impact(time, ddt, peg)
+                t, ddt = calc_time_step_to_impact(t, ddt, peg)
                 x -= x_rel
                 y -= y_rel
                 inside_peg = True
@@ -216,9 +223,9 @@ if __name__ == "__main__":
                 new_angle = calc_ricochet_angle(x, y, new_angle, peg)
                 print(f"rebound: {math.degrees(new_angle):8.4f}\n")
 
-        puck_data.append(time, x, y, new_vel)
+        puck_data.append(t, x, y, new_vel)
 
-        sys.stdout.write(f"{time:9.4f} {x:9.4f} {y:9.4f} {math.degrees(new_angle):9.4f} ")
+        sys.stdout.write(f"{t:9.4f} {x:9.4f} {y:9.4f} {math.degrees(new_angle):9.4f} ")
         sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
 
         angle = new_angle
