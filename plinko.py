@@ -6,8 +6,8 @@ import sys
 RTOL = 0.000001  # m
 GC = 9.81        # m/s^2
 TERM_VEL = 15.   # m/s
-MAX_TIME = 0.8   # s
-DT = 0.01        # s
+MAX_TIME = 1.0   # s
+DT = 0.005       # s
 
 # user inputs
 vo = 10.0  # m/s
@@ -27,34 +27,36 @@ class Peg:
         self.radius = r
 
 
+class PuckData:
+    def __init__(self):
+        self.t = []   # time (s)
+        self.x = []   # x-position (m)
+        self.y = []   # y-position (m)
+        self.v = []   # velocity (m/s)
+
+    def append(self, t, x, y, v):
+        self.t.append(t)
+        self.x.append(x)
+        self.y.append(y)
+        self.v.append(v)
+
+
 pegs = []
+# pegs.append(Peg(4.300, -3.250, 0.25))
 pegs.append(Peg(4.569, -3.250, 0.25))
-# pegs.append(Peg(5.250, -6.000, 0.25))
+pegs.append(Peg(5.650, -6.000, 0.25))
+
+# will not intersect the 2nd peg if DT = 0.01
+# pegs.append(Peg(4.569, -3.250, 0.25))
+# pegs.append(Peg(5.850, -6.000, 0.25))
 
 
 # --------------------------------------------------------------------------------------------------
-def make_plot():
-    # box_x = [4.0, 4.5, 4.5, 4.0, 4.0]
-    # box_y = [-3.5, -3.5, -3.0, -3.0, -3.5]
-    # plt.plot(box_x, box_y)
-    for peg in pegs:
-        circle_x, circle_x2, circle_y = make_circle_points(peg)
-        plt.plot(circle_x, circle_y, 'k')
-        plt.plot(circle_x2, circle_y, 'k')
-
-    # plt.plot(all_x, all_y)
-    # plt.plot(disc_x, disc_y, 'x')
-    plt.plot(disc_x, disc_y, '-')
-    plt.axis('equal')
-    plt.show()
-
-
-# --------------------------------------------------------------------------------------------------
-def calc_ricochet_angle(x, y, peg):
+def calc_ricochet_angle(x, y, vel_angle, peg):
     """"""
     phi = math.atan2(y - peg.center[1], x - peg.center[0])
-    alpha = phi + new_angle - math.pi
-    return new_angle + 2 * alpha
+    alpha = phi - vel_angle - math.pi
+    return phi + alpha
 
 
 # --------------------------------------------------------------------------------------------------
@@ -75,32 +77,39 @@ def calc_time_step_to_impact(time, ddt, peg):
 # --------------------------------------------------------------------------------------------------
 def make_circle_points(peg):
     """only used for plotting, not analysis"""
-    yyy_min = peg.center[1] - peg.radius
-    yyy_max = peg.center[1] + peg.radius
-
-    dy = (yyy_max - yyy_min) / 200
-    yyy = yyy_min - dy
-
-    circle_x = []
-    circle_x2 = []
-    circle_y = []
-
+    theta = 0
+    x = []
+    y = []
     while True:
-        yyy += dy
-        if yyy > yyy_max:
+        if theta > 2 * math.pi:
             break
 
-        xxx = math.sqrt(peg.radius**2 - (yyy - peg.center[1])**2) + peg.center[0]
-        xxx2 = -1*math.sqrt(peg.radius**2 - (yyy - peg.center[1])**2) + peg.center[0]
-        circle_x.append(xxx)
-        circle_x2.append(xxx2)
-        circle_y.append(yyy)
+        theta += 2 * math.pi * 0.01
+        x.append(peg.radius * math.cos(theta) + peg.center[0])
+        y.append(peg.radius * math.sin(theta) + peg.center[1])
 
-    return(circle_x, circle_x2, circle_y)
+    return(x, y)
+
+
+# --------------------------------------------------------------------------------------------------
+def make_plot(puck_data):
+    """"""
+    for peg in pegs:
+        xx, yy = make_circle_points(peg)
+        plt.plot(peg.center[0], peg.center[1], 'o')
+        plt.plot(xx, yy, 'k')
+
+    # plt.plot(all_x, all_y)
+    # plt.plot(puck_data.x, puck_data.y, 'x-')
+    plt.plot(puck_data.x, puck_data.y, '-')
+
+    plt.axis('equal')
+    plt.show()
 
 
 # --------------------------------------------------------------------------------------------------
 def get_position(vel, angle, time, accel):
+    """"""
     x = vel * time * math.cos(angle)
     y = vel * time * math.sin(angle) - (0.5 * accel * time**2)
     return x, y
@@ -108,6 +117,7 @@ def get_position(vel, angle, time, accel):
 
 # --------------------------------------------------------------------------------------------------
 def get_velocity(v_init, angle, accel):
+    """"""
     vx = v_init * math.cos(angle)
     vy = v_init * math.sin(angle) - (accel * DT)
     new_vel = math.sqrt(vx**2 + vy**2)
@@ -136,10 +146,7 @@ if __name__ == "__main__":
 
     x = 0
     y = 0
-    disc_t = []
-    disc_x = []
-    disc_y = []
-    disc_v = []
+    puck_data = PuckData()
 
     vel = vo
     angle = launch_angle
@@ -148,10 +155,7 @@ if __name__ == "__main__":
     x_prev = 0
     y_prev = 0
 
-    disc_t.append(time)
-    disc_x.append(x)
-    disc_y.append(y)
-    disc_v.append(vel)
+    puck_data.append(time, x, y, vel)
 
     sys.stdout.write("     time         x         y     angle       vel     accel\n")
     while True:
@@ -189,25 +193,30 @@ if __name__ == "__main__":
         y += y_rel
 
         # check if inside circle
-        peg = pegs[0]
-        dist_to_center = math.sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
-        if dist_to_center < peg.radius - RTOL:
-            # print(f"contact! {dist_to_center:10.6f} {x:10.6f} {y:10.6f}")
-            # find ddt that would have resulted in ball *just* hitting the peg
-            time, ddt = calc_time_step_to_impact(time, ddt, pegs[0])
-            x -= x_rel
-            y -= y_rel
+        inside_peg = False
+        for i, peg in enumerate(pegs):
+            dist_to_center = math.sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
+            if dist_to_center < peg.radius - RTOL:
+                print(f"contact! {i} {dist_to_center:10.6f} {x:10.6f} {y:10.6f}")
+                # find ddt that would have resulted in ball *just* hitting the peg
+                time, ddt = calc_time_step_to_impact(time, ddt, peg)
+                x -= x_rel
+                y -= y_rel
+                inside_peg = True
+                continue
+
+        if inside_peg:
             continue
 
-        if (peg.radius - RTOL) <= dist_to_center <= (peg.radius + RTOL):
-            # print("exact!!!!!!!!!")
-            # calculate rebound angle
-            new_angle = calc_ricochet_angle(x, y, pegs[0])
+        for i, peg in enumerate(pegs):
+            dist_to_center = math.sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
+            if (peg.radius - RTOL) <= dist_to_center <= (peg.radius + RTOL):
+                print(f"exact!!!!!!!!! {i}")
+                # calculate rebound angle
+                new_angle = calc_ricochet_angle(x, y, new_angle, peg)
+                print(f"rebound: {math.degrees(new_angle):8.4f}\n")
 
-        disc_t.append(time)
-        disc_x.append(x)
-        disc_y.append(y)
-        disc_v.append(new_vel)
+        puck_data.append(time, x, y, new_vel)
 
         sys.stdout.write(f"{time:9.4f} {x:9.4f} {y:9.4f} {math.degrees(new_angle):9.4f} ")
         sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
@@ -219,8 +228,10 @@ if __name__ == "__main__":
         x_prev = x
         y_prev = y
 
+    # print out results to the screen
     sys.stdout.write("      time       x-pos       y-pos         vel\n")
-    for t, x, y, v in zip(disc_t, disc_x, disc_y, disc_v):
+    for t, x, y, v in zip(puck_data.t, puck_data.x, puck_data.y, puck_data.v):
         sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f}\n")
 
-    make_plot()
+    # create matplotlib figure
+    make_plot(puck_data)
