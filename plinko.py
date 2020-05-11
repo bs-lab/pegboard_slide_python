@@ -1,17 +1,23 @@
 import math
 import matplotlib.pyplot as plt
+import numpy as np
 import sys
 
 # constants
 RTOL = 0.000001  # m
 GC = 9.81        # m/s^2
 TERM_VEL = 15.   # m/s
-MAX_TIME = 1.0   # s
+MAX_TIME = 5.   # s
 DT = 0.005       # s
+REDUCE_VEL_FACT = 0.6
+REFRESH_FACT = 1.0
 
 # user inputs
+angle = sys.argv[1]
+print("angle is ", float(angle))
 vo = 10.0  # m/s
-launch_angle = -27 * math.pi / 180  # radians
+#launch_angle = -27 * math.pi / 180  # radians
+launch_angle = float(angle) * math.pi / 180  # radians
 
 print("INPUTS:")
 print('  launch angle', math.degrees(launch_angle))
@@ -41,10 +47,24 @@ class PuckData:
         self.v.append(v)
 
 
+# --------------------------------------------------------------------------------------------------
+peg_rows = [-2, -4, -6, -8]
+peg_cols = [-6, -4, -2, 0, 2, 4, 6]
+
 pegs = []
+for r in peg_rows:
+    for c in peg_cols:
+        pegs.append(Peg(c, r, 0.25))
+
+# offset rows
+for r in peg_rows:
+    for c in peg_cols:
+        pegs.append(Peg(c+1, r+1, 0.25))
+
 # pegs.append(Peg(4.300, -3.250, 0.25))
-pegs.append(Peg(4.569, -3.250, 0.25))
-pegs.append(Peg(5.650, -6.000, 0.25))
+#pegs.append(Peg(4.569, -3.250, 0.25))
+#pegs.append(Peg(5.650, -6.000, 0.25))
+
 
 # will not intersect the 2nd peg if DT = 0.01
 # pegs.append(Peg(4.569, -3.250, 0.25))
@@ -96,18 +116,17 @@ def make_plot(puck_data):
     plt.axis('equal')
     for peg in pegs:
         xx, yy = make_circle_points(peg)
-        plt.plot(peg.center[0], peg.center[1], 'o')
+        # plt.plot(peg.center[0], peg.center[1], 'ko')
         plt.plot(xx, yy, 'k')
 
     # plt.plot(all_x, all_y)
     # plt.plot(puck_data.x, puck_data.y, 'x-')
     # plt.plot(puck_data.x, puck_data.y, '-')
 
-    sf = 1.0
     for i in range(1, len(puck_data.t)):
         delta_t = puck_data.t[i] - puck_data.t[i-1]
         # time.sleep(delta_t)
-        plt.pause(delta_t * sf)
+        plt.pause(delta_t * REFRESH_FACT)
         plt.plot(puck_data.x[i], puck_data.y[i], 'r.')
         plt.draw()
 
@@ -129,6 +148,18 @@ def get_velocity(v_init, angle, accel):
     vy = v_init * math.sin(angle) - (accel * DT)
     new_vel = math.sqrt(vx**2 + vy**2)
     return vx, vy, new_vel
+
+
+# --------------------------------------------------------------------------------------------------
+def calc_rebound(old_angle, old_vel, x, y, peg):
+    new_angle = calc_ricochet_angle(x, y, old_angle, peg)
+    # reduce the puck velocity arbitrarily by REDUCE_VEL_FACT and the angle of impact
+    angle_change = new_angle - old_angle
+    new_vel = old_vel * (1 - (1 - REDUCE_VEL_FACT) * abs(math.sin(angle_change / 2)))
+    print(f"  rebound: {math.degrees(new_angle):8.4f}\n")
+    # print('old & new angles', math.degrees(old_angle), math.degrees(new_angle))
+    # print("reduction of ", (1 - REDUCE_VEL_FACT) * abs(math.sin(angle_change / 2)))
+    return new_angle, new_vel
 
 
 # --------------------------------------------------------------------------------------------------
@@ -166,6 +197,9 @@ if __name__ == "__main__":
 
     sys.stdout.write("     time         x         y     angle       vel     accel\n")
     while True:
+        if puck_data.y[-1] <= -8:
+            sys.stdout.write('reached bottom\n')
+            break
         if t > MAX_TIME:
             sys.stdout.write(f'breaking at time = {t:12.8f}\n')
             break
@@ -215,23 +249,23 @@ if __name__ == "__main__":
         if inside_peg:
             continue
 
+        # check if contacting surface
         for i, peg in enumerate(pegs):
             dist_to_center = math.sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
             if (peg.radius - RTOL) <= dist_to_center <= (peg.radius + RTOL):
                 print(f"exact!!!!!!!!! {i}")
-                # calculate rebound angle
-                new_angle = calc_ricochet_angle(x, y, new_angle, peg)
-                print(f"rebound: {math.degrees(new_angle):8.4f}\n")
+                # calculate rebound angle & reduced velocity
+                new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y, peg)
 
         puck_data.append(t, x, y, new_vel)
 
         sys.stdout.write(f"{t:9.4f} {x:9.4f} {y:9.4f} {math.degrees(new_angle):9.4f} ")
         sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
 
+        # update values for next iteration
         angle = new_angle
         vel = new_vel
         ddt = DT
-
         x_prev = x
         y_prev = y
 
