@@ -128,6 +128,7 @@ def make_plot(puck_data, avi_filename=""):
     """"""
     # ----------------------------------------------------------------------------------------------
     def init_plot():
+        plt.title(f'angle={degrees(angle)}')
         plt.xlim(-8, 8)
         plt.axis('equal')
         for peg in pegs:
@@ -153,7 +154,7 @@ def make_plot(puck_data, avi_filename=""):
         fps = 15
         frame_data = align_to_framerate(puck_data, framerate=fps)
         Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=fps, metadata=dict(artist=degrees(launch_angle)), bitrate=1800)
+        writer = Writer(fps=fps, metadata=dict(artist='bs-lab'), bitrate=1800)
 
         xdata = []
         ydata = []
