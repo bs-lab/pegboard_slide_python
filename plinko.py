@@ -1,22 +1,22 @@
 import math
-import matplotlib.pyplot as plt
-import numpy as np
 import sys
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from scipy import interpolate
 
 # constants
 RTOL = 0.000001  # m
 GC = 9.81        # m/s^2
 TERM_VEL = 15.   # m/s
-MAX_TIME = 5.   # s
+MAX_TIME = 8.   # s
 DT = 0.005       # s
 REDUCE_VEL_FACT = 0.6
 REFRESH_FACT = 1.0
+LOWEST_Y = -9
 
 # user inputs
 angle = sys.argv[1]
-print("angle is ", float(angle))
 vo = 10.0  # m/s
-#launch_angle = -27 * math.pi / 180  # radians
 launch_angle = float(angle) * math.pi / 180  # radians
 
 print("INPUTS:")
@@ -48,27 +48,21 @@ class PuckData:
 
 
 # --------------------------------------------------------------------------------------------------
-peg_rows = [-2, -4, -6, -8]
-peg_cols = [-6, -4, -2, 0, 2, 4, 6]
+def create_pegs():
+    peg_rows = [-2, -4, -6, -8]
+    peg_cols = [-6, -4, -2, 0, 2, 4, 6]
 
-pegs = []
-for r in peg_rows:
-    for c in peg_cols:
-        pegs.append(Peg(c, r, 0.25))
+    pegs = []
+    for r in peg_rows:
+        for c in peg_cols:
+            pegs.append(Peg(c, r, 0.25))
 
-# offset rows
-for r in peg_rows:
-    for c in peg_cols:
-        pegs.append(Peg(c+1, r+1, 0.25))
+    # include offset rows
+    for r in peg_rows:
+        for c in peg_cols:
+            pegs.append(Peg(c+1, r+1, 0.25))
 
-# pegs.append(Peg(4.300, -3.250, 0.25))
-#pegs.append(Peg(4.569, -3.250, 0.25))
-#pegs.append(Peg(5.650, -6.000, 0.25))
-
-
-# will not intersect the 2nd peg if DT = 0.01
-# pegs.append(Peg(4.569, -3.250, 0.25))
-# pegs.append(Peg(5.850, -6.000, 0.25))
+    return pegs
 
 
 # --------------------------------------------------------------------------------------------------
@@ -111,26 +105,71 @@ def make_circle_points(peg):
 
 
 # --------------------------------------------------------------------------------------------------
-def make_plot(puck_data):
+def align_to_framerate(puck_data, framerate=30, dilation=3):
     """"""
-    plt.axis('equal')
-    for peg in pegs:
-        xx, yy = make_circle_points(peg)
-        # plt.plot(peg.center[0], peg.center[1], 'ko')
-        plt.plot(xx, yy, 'k')
+    interp_func_x = interpolate.interp1d(puck_data.t, puck_data.x)
+    interp_func_y = interpolate.interp1d(puck_data.t, puck_data.y)
+    max_time = max(puck_data.t)
+    num_frames = math.ceil(max_time * framerate * dilation)
+    frame_data = []
+    for f in range(num_frames):
+        t = f / (framerate * dilation)
+        frame_data.append((interp_func_x(t), interp_func_y(t)))
 
-    # plt.plot(all_x, all_y)
-    # plt.plot(puck_data.x, puck_data.y, 'x-')
-    # plt.plot(puck_data.x, puck_data.y, '-')
+    print("number of of frames:", len(frame_data))
+    return frame_data
 
-    for i in range(1, len(puck_data.t)):
-        delta_t = puck_data.t[i] - puck_data.t[i-1]
-        # time.sleep(delta_t)
-        plt.pause(delta_t * REFRESH_FACT)
-        plt.plot(puck_data.x[i], puck_data.y[i], 'r.')
-        plt.draw()
 
-    plt.show()
+# --------------------------------------------------------------------------------------------------
+def make_plot(puck_data, avi_filename=""):
+    """"""
+    # ----------------------------------------------------------------------------------------------
+    def init_plot():
+        plt.xlim(-8, 8)
+        plt.axis('equal')
+        for peg in pegs:
+            xx, yy = make_circle_points(peg)
+            plt.plot(xx, yy, 'b')
+
+        return line_trace, puck_dot,
+
+    # ----------------------------------------------------------------------------------------------
+    def update_plot(xy):
+        xdata.append(xy[0])
+        ydata.append(xy[1])
+        line_trace.set_data(xdata, ydata)
+        puck_dot.set_data(xy[0], xy[1])
+        return line_trace, puck_dot,
+
+    # ----------------------------------------------------------------------------------------------
+    fig1 = plt.figure()
+    line_trace, = plt.plot([], [], '-', color='0.5')
+    puck_dot, = plt.plot([], [], 'ro', ms=3)
+
+    if avi_filename.strip():
+        fps = 15
+        frame_data = align_to_framerate(puck_data, framerate=fps)
+        Writer = animation.writers['ffmpeg']
+        writer = Writer(fps=fps, metadata=dict(artist='bs-lab'), bitrate=1800)
+
+        xdata = []
+        ydata = []
+        ani = animation.FuncAnimation(fig1, update_plot, frame_data, init_func=init_plot, blit=True)
+        print(f'saving to "{avi_filename}"...')
+        ani.save(avi_filename, writer=writer)
+        print(f'saved to "{avi_filename}"')
+
+    else:
+        init_plot()
+
+        for i in range(1, len(puck_data.t)):
+            delta_t = puck_data.t[i] - puck_data.t[i-1]
+            plt.pause(delta_t * REFRESH_FACT)
+            plt.plot(puck_data.x[i], puck_data.y[i], 'r.')
+            plt.draw()
+
+        # prevent figure from disappearing
+        plt.show()
 
 
 # --------------------------------------------------------------------------------------------------
@@ -165,25 +204,7 @@ def calc_rebound(old_angle, old_vel, x, y, peg):
 # --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     """"""
-    all_x = []
-    all_y = []
-    all_t = []
-    # print("                 time         x         y     angle       vel")
-    max_i = math.floor(MAX_TIME / DT) + 1
-    for i in range(max_i):
-        t = DT * i
-        x, y = get_position(vo, launch_angle, t, GC)
-        vx = vo * math.cos(launch_angle)
-        vy = vo * math.sin(launch_angle) - GC * t
-        vel = math.sqrt(vx**2 + vy**2)
-        angle = math.atan2(y, x)
-        # print(f"continuous {t:9.4f} {x:9.4f} {y:9.4f} {math.degrees(angle):16.8f} {vel:16.8f}")
-        all_t.append(t)
-        all_x.append(x)
-        all_y.append(y)
-
-    x = 0
-    y = 0
+    pegs = create_pegs()
     puck_data = PuckData()
 
     vel = vo
@@ -192,12 +213,14 @@ if __name__ == "__main__":
     t = 0
     x_prev = 0
     y_prev = 0
+    x = 0
+    y = 0
 
     puck_data.append(t, x, y, vel)
 
     sys.stdout.write("     time         x         y     angle       vel     accel\n")
     while True:
-        if puck_data.y[-1] <= -8:
+        if puck_data.y[-1] <= LOWEST_Y:
             sys.stdout.write('reached bottom\n')
             break
         if t > MAX_TIME:
@@ -274,5 +297,5 @@ if __name__ == "__main__":
     for t, x, y, v in zip(puck_data.t, puck_data.x, puck_data.y, puck_data.v):
         sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f}\n")
 
-    # create matplotlib figure
-    make_plot(puck_data)
+    # create matplotlib figure or mp4 file
+    make_plot(puck_data, avi_filename="outfile.mp4")
