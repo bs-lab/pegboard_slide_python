@@ -77,7 +77,7 @@ def create_pegs():
 
 
 # --------------------------------------------------------------------------------------------------
-def make_puck_spray(num_pucks, first_angle, final_angle):
+def create_puck_spray(num_pucks, first_angle, final_angle):
     """Creates list of PuckData instances, with evenly spaced initial angles"""
     pucks = []
 
@@ -87,14 +87,39 @@ def make_puck_spray(num_pucks, first_angle, final_angle):
         del_angle = 0
 
     puck_angle = first_angle + del_angle
+    x_coord = 0
+    y_coord = 0
+    t = 0
 
     for p in range(num_pucks):
         pucks.append(PuckData())
         puck_angle -= del_angle
         print(f'  puck # {p}, angle {degrees(puck_angle):16.12f}')
-        pucks[-1].append(t, x, y, vel, puck_angle)
+        pucks[-1].append(t, x_coord, y_coord, vo, puck_angle)
 
     print('')
+
+    return pucks
+
+
+# --------------------------------------------------------------------------------------------------
+def create_puck_shower(num_pucks, left_x, right_x):
+    """Creates list of PuckData instances, with evenly spaced launch locations"""
+    pucks = []
+    if num_pucks > 1:
+        x_spacing = (right_x - left_x) / (num_pucks - 1)
+    else:
+        x_spacing = 0
+
+    x_coord = left_x - x_spacing
+    y_coord = 0
+    t = 0
+
+    for p in range(num_pucks):
+        pucks.append(PuckData())
+        x_coord += x_spacing
+        pucks[-1].append(t, x_coord, y_coord, vo, launch_angle)
+        print('p stuff', p, x_coord, y_coord, degrees(launch_angle))
 
     return pucks
 
@@ -139,11 +164,13 @@ def make_circle_points(peg):
 
 
 # --------------------------------------------------------------------------------------------------
-def align_to_framerate(puck_data, max_time, framerate, dilation=2.0):
+def align_to_framerate(puck, max_time, framerate, dilation=2.0):
     """
+    Interpolates the position puck data to align with the mp4 framerate.
+
     INPUTS:
     -------
-    puck_data -- PuckData instance
+    puck      -- PuckData instance
     max_time  -- max simulation time (when either all pucks are out of play or MAX_TIME reached)
     framerate -- frame rate (frames per second)
 
@@ -156,8 +183,8 @@ def align_to_framerate(puck_data, max_time, framerate, dilation=2.0):
     --------
     frame_data -- list of interpolated positional puck data at specific time frames
     """
-    interp_func_x = interpolate.interp1d(puck_data.t, puck_data.x)
-    interp_func_y = interpolate.interp1d(puck_data.t, puck_data.y)
+    interp_func_x = interpolate.interp1d(puck.t, puck.x)
+    interp_func_y = interpolate.interp1d(puck.t, puck.y)
     num_frames = ceil(max_time * framerate * dilation)
     frame_data = []
     for f in range(num_frames):
@@ -199,7 +226,6 @@ def make_plot(pucks, avi_filename=""):
                 print('x in xy:', x)
 
         puck_dot.set_data(xs, ys)
-        # print('aaa')
         return puck_dot,
 
     # ----------------------------------------------------------------------------------------------
@@ -376,35 +402,35 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def update_puck(puck_data):
+def update_puck(puck):
     """Updates the PuckData instance based on its projectile motion (and possible ricochets after
        a time interval of DT."""
     # do not exceed terminal velocity
-    if puck_data.v[-1] >= TERM_VEL:
+    if puck.v[-1] >= TERM_VEL:
         accel = 0
     else:
         accel = GC
 
     # update the relative position
-    x_rel, y_rel = get_position(puck_data.v[-1], puck_data.angle[-1], DT, accel)
+    x_rel, y_rel = get_position(puck.v[-1], puck.angle[-1], DT, accel)
 
     # update the velocity
-    new_vel = get_velocity(puck_data.v[-1], puck_data.angle[-1], DT, accel)
+    new_vel = get_velocity(puck.v[-1], puck.angle[-1], DT, accel)
 
     if new_vel >= TERM_VEL:
         accel = 0
         new_vel = TERM_VEL
 
         # recalculate relative position based on terminal velocity and no acceleration
-        x_rel, y_rel = get_position(TERM_VEL, puck_data.angle[-1], DT, accel)
+        x_rel, y_rel = get_position(TERM_VEL, puck.angle[-1], DT, accel)
 
     # update velocity's angle
-    x_inc, y_inc = get_position(puck_data.v[-1], puck_data.angle[-1], DT - DT / 100, accel)
+    x_inc, y_inc = get_position(puck.v[-1], puck.angle[-1], DT - DT / 100, accel)
     new_angle = atan2(y_rel - y_inc, x_rel - x_inc)
 
     # update the absolute position
-    x = puck_data.x[-1] + x_rel
-    y = puck_data.y[-1] + y_rel
+    x = puck.x[-1] + x_rel
+    y = puck.y[-1] + y_rel
 
     # check if position is inside or contacting surface
     for peg in pegs:
@@ -414,20 +440,20 @@ def update_puck(puck_data):
                 print(f"inside!!!!!!!!! {peg.id}")
                 # re-calculate current position so that it is on the surface, not inside
                 print('  old coords', x, y)
-                x, y = get_line_circle_intersection([puck_data.x[-1], puck_data.y[-1]],
+                x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
                                                     [x, y], peg.center, peg.radius)
                 print('  new coords', x, y)
 
             # calculate rebound angle & reduced velocity
             new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y, peg)
 
-    puck_data.append(t, x, y, new_vel, new_angle)
+    puck.append(t, x, y, new_vel, new_angle)
 
     if DEBUG:
         sys.stdout.write(f"{t:9.4f} {x:9.4f} {y:9.4f} {degrees(new_angle):9.4f} ")
         sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
 
-    return puck_data
+    return puck
 
 
 # --------------------------------------------------------------------------------------------------
@@ -442,7 +468,8 @@ if __name__ == "__main__":
 
     num_pucks = 4
     last_puck_angle = pi - launch_angle - 0.2
-    pucks = make_puck_spray(num_pucks, launch_angle, last_puck_angle)
+    pucks = create_puck_spray(num_pucks, launch_angle, last_puck_angle)
+    # pucks = create_puck_shower(num_pucks, -6, 6)
 
     if DEBUG:
         sys.stdout.write("     time         x         y     angle       vel     accel\n")
