@@ -8,12 +8,15 @@ from scipy import interpolate
 RTOL = 0.0000001  # m
 GC = 9.81         # m/s^2
 TERM_VEL = 15.    # m/s
+MIN_VEL = 0.05    # m/s
 MAX_TIME = 10.0   # s
 DT = 0.0001       # s
 REDUCE_VEL_FACT = 0.6
 REFRESH_FACT = 1.0
 LOWEST_Y = -9
 DEBUG = False
+PEG_RADIUS = 0.25
+PUCK_RADIUS = 0.10
 
 # user inputs
 angle = sys.argv[1]
@@ -37,13 +40,14 @@ class Peg:
 
 
 class PuckData:
-    def __init__(self):
-        self.t = []   # time (s)
-        self.x = []   # x-position (m)
-        self.y = []   # y-position (m)
-        self.v = []   # velocity (m/s)
-        self.angle = []  # velocity angle (rad)
-        self.inplay = True
+    def __init__(self, radius):
+        self.radius = radius  # radius (m)
+        self.t = []           # time (s)
+        self.x = []           # x-coordinate (m)
+        self.y = []           # y-coordinate (m)
+        self.v = []           # velocity (m/s)
+        self.angle = []       # velocity angle (rad)
+        self.inplay = True    # false if puck reaches the bottom
         self.final_time = MAX_TIME
 
     def append(self, t, x, y, v, a):
@@ -65,13 +69,13 @@ def create_pegs():
     for r in peg_rows:
         for c in peg_cols:
             pid += 1
-            pegs.append(Peg(c, r, 0.25, pid))
+            pegs.append(Peg(c, r, PEG_RADIUS, pid))
 
     # include offset rows
     for r in peg_rows:
         for c in peg_cols:
             pid += 1
-            pegs.append(Peg(c+1, r+1, 0.25, pid))
+            pegs.append(Peg(c+1, r+1, PEG_RADIUS, pid))
 
     return pegs
 
@@ -92,7 +96,7 @@ def create_puck_spray(num_pucks, first_angle, final_angle):
     t = 0
 
     for p in range(num_pucks):
-        pucks.append(PuckData())
+        pucks.append(PuckData(PUCK_RADIUS))
         puck_angle -= del_angle
         print(f'  puck # {p}, angle {degrees(puck_angle):16.12f}')
         pucks[-1].append(t, x_coord, y_coord, vo, puck_angle)
@@ -116,7 +120,7 @@ def create_puck_shower(num_pucks, left_x, right_x):
     t = 0
 
     for p in range(num_pucks):
-        pucks.append(PuckData())
+        pucks.append(PuckData(PUCK_RADIUS))
         x_coord += x_spacing
         pucks[-1].append(t, x_coord, y_coord, vo, launch_angle)
         print('p stuff', p, x_coord, y_coord, degrees(launch_angle))
@@ -147,7 +151,7 @@ def calc_ricochet_angle(x, y, vel_angle, peg):
 
 
 # --------------------------------------------------------------------------------------------------
-def make_circle_points(peg):
+def make_circle_points(center, radius):
     """only used for plotting, not analysis"""
     theta = 0
     x = []
@@ -157,8 +161,8 @@ def make_circle_points(peg):
             break
 
         theta += 2 * pi * 0.01
-        x.append(peg.radius * cos(theta) + peg.center[0])
-        y.append(peg.radius * sin(theta) + peg.center[1])
+        x.append(radius * cos(theta) + center[0])
+        y.append(radius * sin(theta) + center[1])
 
     return(x, y)
 
@@ -210,7 +214,7 @@ def make_plot(pucks, avi_filename=""):
         plt.xlim(-8, 8)
         plt.axis('equal')
         for peg in pegs:
-            xx, yy = make_circle_points(peg)
+            xx, yy = make_circle_points(peg.center, peg.radius)
             plt.plot(xx, yy, 'b')
 
         return puck_dot,
@@ -222,28 +226,28 @@ def make_plot(pucks, avi_filename=""):
         for x in xy:
             xs.append(x[0])
             ys.append(x[1])
-            if DEBUG:
-                print('x in xy:', x)
+            # if DEBUG:
+            #     print('x in xy:', x)
 
         puck_dot.set_data(xs, ys)
         return puck_dot,
 
     # ----------------------------------------------------------------------------------------------
     fig1 = plt.figure()
-    puck_dot, = plt.plot([], [], 'ro', ms=3)
+    puck_dot, = plt.plot([], [], 'ro', ms=50 * PUCK_RADIUS)
+
+    fps = 15
+
+    frame_data = []
+    max_time = max([x.final_time for x in pucks])
+
+    for puck in pucks:
+        frame_data.append(align_to_framerate(puck, max_time, fps))
 
     if avi_filename.strip():
-        fps = 15
-
-        frame_data = []
-        max_time = max([x.final_time for x in pucks])
-        for puck in pucks:
-            frame_data.append(align_to_framerate(puck, max_time, fps))
-
-        # xdata = []
-        # ydata = []
         ani = animation.FuncAnimation(fig1, update_plot, zip(*frame_data),
                                       init_func=init_plot, blit=True, save_count=len(frame_data[0]))
+
         sys.stdout.write(f'saving to "{avi_filename}"...\n')
         Writer = animation.writers['ffmpeg']
         writer = Writer(fps=fps, metadata=dict(artist='bs-lab'), bitrate=1800)
@@ -253,12 +257,16 @@ def make_plot(pucks, avi_filename=""):
     else:
         init_plot()
 
-        for puck in pucks:
-            for i in range(1, len(puck.t)):
-                # delta_t = puck.t[i] - puck.t[i-1]
-                # plt.pause(delta_t * REFRESH_FACT)
-                plt.plot(puck.x[i], puck.y[i], 'r.')
-                # plt.draw()
+        for f in range(len(frame_data[0])):
+            # plt.pause(1/fps)
+            plt.pause(0.04)
+            for p, puck in enumerate(pucks):
+                x = frame_data[p][f][0]
+                y = frame_data[p][f][1]
+                plt.plot(x, y, 'r.')
+                xx, yy = make_circle_points([x, y], puck.radius)
+                plt.plot(xx, yy, 'r')
+            # plt.draw()
 
         # prevent figure from disappearing
         plt.show()
@@ -330,11 +338,16 @@ def calc_rebound(old_angle, old_vel, x, y, peg):
     angle_change = new_angle - old_angle
     # reduce the puck velocity arbitrarily by REDUCE_VEL_FACT and the angle of impact
     new_vel = old_vel * (1 - (1 - REDUCE_VEL_FACT) * abs(sin(angle_change / 2)))
+    if new_vel < MIN_VEL:
+        new_vel = MIN_VEL
+
     print(f"  rebound: {degrees(new_angle):8.4f}")
 
     if DEBUG:
         sys.stdout.write(f'old & new angles {degrees(old_angle)} {degrees(new_angle)}\n')
-        sys.stdout.write(f'reduction of {(1 - REDUCE_VEL_FACT) * abs(sin(angle_change / 2))}\n')
+        sys.stdout.write(f'{old_vel} multiplied by of ')
+        sys.stdout.write(f'{(1 - (1 - REDUCE_VEL_FACT) * abs(sin(angle_change / 2)))}')
+        sys.stdout.write(f' to get {new_vel}\n')
 
     return new_angle, new_vel
 
@@ -435,13 +448,13 @@ def update_puck(puck):
     # check if position is inside or contacting surface
     for peg in pegs:
         dist_to_center = sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
-        if dist_to_center <= (peg.radius + RTOL):
-            if dist_to_center < (peg.radius + RTOL):
+        if dist_to_center <= (peg.radius + puck.radius + RTOL):
+            if dist_to_center < (peg.radius + puck.radius + RTOL):
                 print(f"inside!!!!!!!!! {peg.id}")
                 # re-calculate current position so that it is on the surface, not inside
                 print('  old coords', x, y)
                 x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
-                                                    [x, y], peg.center, peg.radius)
+                                                    [x, y], peg.center, peg.radius + puck.radius)
                 print('  new coords', x, y)
 
             # calculate rebound angle & reduced velocity
@@ -504,3 +517,4 @@ if __name__ == "__main__":
 
     # create matplotlib figure or mp4 file
     make_plot(pucks, avi_filename="outfile.mp4")
+    # make_plot(pucks)
