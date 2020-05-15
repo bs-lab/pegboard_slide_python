@@ -39,8 +39,15 @@ class Peg:
         self.id = xid
 
 
+# class FlatSurface:
+#     def __init__(self):
+#         self.start_pt = []
+#         self.stop_pt = []
+
+
 class PuckData:
-    def __init__(self, radius):
+    def __init__(self, radius, xid):
+        self.id = xid
         self.radius = radius  # radius (m)
         self.t = []           # time (s)
         self.x = []           # x-coordinate (m)
@@ -96,7 +103,7 @@ def create_puck_spray(num_pucks, first_angle, final_angle):
     t = 0
 
     for p in range(num_pucks):
-        pucks.append(PuckData(PUCK_RADIUS))
+        pucks.append(PuckData(PUCK_RADIUS, p))
         puck_angle -= del_angle
         print(f'  puck # {p}, angle {degrees(puck_angle):16.12f}')
         pucks[-1].append(t, x_coord, y_coord, vo, puck_angle)
@@ -120,7 +127,7 @@ def create_puck_shower(num_pucks, left_x, right_x):
     t = 0
 
     for p in range(num_pucks):
-        pucks.append(PuckData(PUCK_RADIUS))
+        pucks.append(PuckData(PUCK_RADIUS, p))
         x_coord += x_spacing
         pucks[-1].append(t, x_coord, y_coord, vo, launch_angle)
         print('p stuff', p, x_coord, y_coord, degrees(launch_angle))
@@ -129,23 +136,24 @@ def create_puck_shower(num_pucks, left_x, right_x):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_ricochet_angle(x, y, vel_angle, peg):
+def calc_ricochet_angle(x, y, vel_angle, circle_center, circle_radius):
     """
     Calculates the angle at which the puck (located on the peg at {x, y} with a velocity angle of
-    vel_angle), bounces of the peg. Assumes elastic collision.
+    vel_angle), bounces of the circlulate object. Assumes elastic collision.
 
     INPUTS:
     -------
-    x         -- x-coordinate of the puck (should be on the surface of the peg)
-    y         -- y-coordinate of the puck (should be on the surface of the peg)
-    vel_angle -- velocity angle of the puck
-    peg       -- Peg instance
+    x             -- x-coordinate of the puck (should be on the surface of the peg)
+    y             -- y-coordinate of the puck (should be on the surface of the peg)
+    vel_angle     -- velocity angle of the puck
+    circle_center -- center location of circular object
+    circle_radius -- radius of circular object
 
     RETURNS:
     --------
     the rebound (i.e. ricochet) angle
     """
-    phi = atan2(y - peg.center[1], x - peg.center[0])
+    phi = atan2(y - circle_center[1], x - circle_center[0])
     alpha = phi - vel_angle - pi
     return phi + alpha
 
@@ -316,17 +324,19 @@ def get_velocity(v_init, angle, t, accel):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_rebound(old_angle, old_vel, x, y, peg):
+def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
     """
-    Calculates the puck velocity after rebounding off of a peg.
+    Calculates the puck velocity after rebounding off of a circular object (like a peg or
+      other puck).
 
     INPUTS:
     -------
-    old_angle -- puck's velocity angle just prior to impact with the peg
-    old_vel   -- puck's velocity magnitude prior to impact with the peg
-    x         -- x-coordinate of the puck (should be on the surface of the peg)
-    y         -- y-coordinate of the puck (should be on the surface of the peg)
-    peg       -- Peg instances
+    old_angle     -- puck's velocity angle just prior to impact with the peg
+    old_vel       -- puck's velocity magnitude prior to impact with the peg
+    x             -- x-coordinate of the puck (should be on the surface of the peg)
+    y             -- y-coordinate of the puck (should be on the surface of the peg)
+    circle_center -- center location of circular object
+    circle_radius -- radius of circular object
 
     RETURNS:
     --------
@@ -334,7 +344,7 @@ def calc_rebound(old_angle, old_vel, x, y, peg):
     new_vel   -- puck's velocity magnitude just after impact with the peg
     """
     # get the ricochet angle
-    new_angle = calc_ricochet_angle(x, y, old_angle, peg)
+    new_angle = calc_ricochet_angle(x, y, old_angle, circle_center, circle_radius)
     angle_change = new_angle - old_angle
     # reduce the puck velocity arbitrarily by REDUCE_VEL_FACT and the angle of impact
     new_vel = old_vel * (1 - (1 - REDUCE_VEL_FACT) * abs(sin(angle_change / 2)))
@@ -415,7 +425,7 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def update_puck(puck):
+def update_puck(puck, pucks):
     """Updates the PuckData instance based on its projectile motion (and possible ricochets after
        a time interval of DT."""
     # do not exceed terminal velocity
@@ -450,15 +460,42 @@ def update_puck(puck):
         dist_to_center = sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
         if dist_to_center <= (peg.radius + puck.radius + RTOL):
             if dist_to_center < (peg.radius + puck.radius + RTOL):
-                print(f"inside!!!!!!!!! {peg.id}")
+                print(f"inside peg!!!!!!!!! {peg.id}")
                 # re-calculate current position so that it is on the surface, not inside
-                print('  old coords', x, y)
+                print('  old puck coords', x, y)
                 x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
                                                     [x, y], peg.center, peg.radius + puck.radius)
-                print('  new coords', x, y)
+                print('  new puck coords', x, y)
 
             # calculate rebound angle & reduced velocity
-            new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y, peg)
+            new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y, peg.center, peg.radius)
+
+    # check if position is inside or contacting other pucks
+    for other_puck in pucks:
+        if other_puck.id >= puck.id:
+            continue
+        dist_to_center = sqrt((x - other_puck.x[-1])**2 + (y - other_puck.y[-1])**2)
+        if dist_to_center <= (other_puck.radius + puck.radius + RTOL) and y < -0.5:
+            if dist_to_center < (other_puck.radius + puck.radius + RTOL):
+                print(f"inside other puck!!!!!!!!! {other_puck.id}")
+                # re-calculate current position so that it is on the surface, not inside
+                print('  old puck coords', x, y)
+                x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
+                                                    [x, y], [other_puck.x[-1], other_puck.y[-1]],
+                                                    other_puck.radius + puck.radius)
+                print('  new puck coords', x, y)
+
+            # calculate puck's rebound angle & reduced velocity
+            new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y,
+                                              [other_puck.x[-1], other_puck.y[-1]],
+                                              other_puck.radius)
+
+            # calculate rebound angle and reduced velocity of other puck
+            other_angle, other_vel = calc_rebound(other_puck.angle[-1], other_puck.v[-1],
+                                                  other_puck.x[-1], other_puck.y[-1],
+                                                  [x, y], puck.radius)
+            other_puck.v[-1] = other_vel
+            other_puck.angle[-1] = other_angle
 
     puck.append(t, x, y, new_vel, new_angle)
 
@@ -502,7 +539,7 @@ if __name__ == "__main__":
                 puck.final_time = t
                 # break
 
-            puck = update_puck(puck)
+            puck = update_puck(puck, pucks)
 
         t += DT
 
