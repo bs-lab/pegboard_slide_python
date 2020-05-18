@@ -218,7 +218,7 @@ def make_plot(pucks, avi_filename=""):
     """Creates either a matplotlib graph or an mp4 file showing the results of the analysis"""
     # ----------------------------------------------------------------------------------------------
     def init_plot():
-        plt.title(f'angle={degrees(launch_angle)}')
+        plt.title(f'angle={degrees(launch_angle):12.8f}')
         plt.xlim(-8, 8)
         plt.axis('equal')
         for peg in pegs:
@@ -363,6 +363,49 @@ def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
+def puck_collision(puck_1_angle, puck_1_vel, puck_1_x, puck_1_y, puck_2):
+    """
+    Calculates the resulting velocities of two pucks after they collide.
+
+    INPUTS:
+    -------
+    puck_1_angle -- velocity angle of 1st puck
+    puck_1_vel   -- velocity magnitude of 1st puck
+    puck_1_x     -- x-coordinate of 1st puck
+    puck_1_y     -- y-coordinate of 1st puck
+    puck_2       -- PuckData instance of 2nd puck
+
+    RETURNS:
+    --------
+    angle_1 -- velocity angle of 1st puck after impact
+    vel_1   -- velocity magnitude of 1st puck after impact
+    angle_2 -- velocity angle of 2nd puck after impact
+    vel_2   -- velocity magnitude of 2nd puck after impact
+    """
+    # get angle of contact
+    contact_angle = atan2(puck_1_y - puck_2.y[-1], puck_1_x - puck_2.x[-1])
+
+    # useful terms
+    del1 = puck_1_angle - contact_angle
+    del2 = puck_2.angle[-1] - contact_angle
+    capp = contact_angle + 0.5 * pi
+
+    # get 1st puck's velocity after elastic collision
+    vx = puck_2.v[-1] * cos(del2) * cos(contact_angle) + puck_1_vel * sin(del1) * cos(capp)
+    vy = puck_2.v[-1] * cos(del2) * sin(contact_angle) + puck_1_vel * sin(del1) * sin(capp)
+    vel_1 = sqrt(vx**2 + vy**2)
+    angle_1 = atan2(vy, vx)
+
+    # get 2nd puck's velocity after elastic collision
+    vx = puck_1_vel * cos(del1) * cos(contact_angle) + puck_2.v[-1] * sin(del2) * cos(capp)
+    vy = puck_1_vel * cos(del1) * sin(contact_angle) + puck_2.v[-1] * sin(del2) * sin(capp)
+    vel_2 = sqrt(vx**2 + vy**2)
+    angle_2 = atan2(vy, vx)
+
+    return angle_1, vel_1, angle_2, vel_2
+
+
+# --------------------------------------------------------------------------------------------------
 def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
     """
     Returns the intersection point of a line-segment and circle. Since a line intersects a circle
@@ -425,7 +468,7 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def update_puck(puck, pucks):
+def update_puck(puck, pucks, t):
     """Updates the PuckData instance based on its projectile motion (and possible ricochets after
        a time interval of DT."""
     # do not exceed terminal velocity
@@ -473,9 +516,15 @@ def update_puck(puck, pucks):
     # check if position is inside or contacting other pucks
     for other_puck in pucks:
         if other_puck.id >= puck.id:
+            # if other puck has higher ID, then it hasn't been processed yet in this frame
             continue
+
+        if not other_puck.inplay:
+            # other puck is no longer bouncing about, so treat it as non-existent
+            continue
+
         dist_to_center = sqrt((x - other_puck.x[-1])**2 + (y - other_puck.y[-1])**2)
-        if dist_to_center <= (other_puck.radius + puck.radius + RTOL) and y < -0.5:
+        if dist_to_center <= (other_puck.radius + puck.radius + RTOL) and t > 0.5:
             if dist_to_center < (other_puck.radius + puck.radius + RTOL):
                 print(f"inside other puck!!!!!!!!! {other_puck.id}")
                 # re-calculate current position so that it is on the surface, not inside
@@ -485,17 +534,16 @@ def update_puck(puck, pucks):
                                                     other_puck.radius + puck.radius)
                 print('  new puck coords', x, y)
 
-            # calculate puck's rebound angle & reduced velocity
-            new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y,
-                                              [other_puck.x[-1], other_puck.y[-1]],
-                                              other_puck.radius)
-
-            # calculate rebound angle and reduced velocity of other puck
-            other_angle, other_vel = calc_rebound(other_puck.angle[-1], other_puck.v[-1],
-                                                  other_puck.x[-1], other_puck.y[-1],
-                                                  [x, y], puck.radius)
+            # should puck_collision use 'new_angle' and 'new_vel', 'x', and 'y' ???
+            new_angle, new_vel, other_angle, other_vel = puck_collision(new_angle, new_vel,
+                                                                        x, y, other_puck)
             other_puck.v[-1] = other_vel
             other_puck.angle[-1] = other_angle
+
+            # or, could treat the other puck as an immovable object, like a peg...
+            # new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y,
+            #                                   [other_puck.x[-1], other_puck.y[-1]],
+            #                                   other_puck.radius)
 
     puck.append(t, x, y, new_vel, new_angle)
 
@@ -539,7 +587,7 @@ if __name__ == "__main__":
                 puck.final_time = t
                 # break
 
-            puck = update_puck(puck, pucks)
+            puck = update_puck(puck, pucks, t)
 
         t += DT
 
