@@ -15,8 +15,11 @@ REDUCE_VEL_FACT = 0.6
 REFRESH_FACT = 1.0
 LOWEST_Y = -9
 DEBUG = False
+DEBUG_2 = False
 PEG_RADIUS = 0.25
 PUCK_RADIUS = 0.10
+FPS = 30
+DILATION = 2
 
 # user inputs
 angle = sys.argv[1]
@@ -176,7 +179,7 @@ def make_circle_points(center, radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def align_to_framerate(puck, max_time, framerate, dilation=2.0):
+def align_to_framerate(puck, max_time, framerate, dilation=1.0):
     """
     Interpolates the position puck data to align with the mp4 framerate.
 
@@ -206,7 +209,7 @@ def align_to_framerate(puck, max_time, framerate, dilation=2.0):
         frame_data.append((x.tolist(), y.tolist()))
 
     if DEBUG:
-        print("number of of frames:", len(frame_data))
+        print("number of frames:", len(frame_data))
         print("  max time", max_time)
         print("  # frames", num_frames)
 
@@ -244,13 +247,11 @@ def make_plot(pucks, avi_filename=""):
     fig1 = plt.figure()
     puck_dot, = plt.plot([], [], 'ro', ms=50 * PUCK_RADIUS)
 
-    fps = 15
-
     frame_data = []
     max_time = max([x.final_time for x in pucks])
 
     for puck in pucks:
-        frame_data.append(align_to_framerate(puck, max_time, fps))
+        frame_data.append(align_to_framerate(puck, max_time, FPS, dilation=DILATION))
 
     if avi_filename.strip():
         ani = animation.FuncAnimation(fig1, update_plot, zip(*frame_data),
@@ -258,7 +259,7 @@ def make_plot(pucks, avi_filename=""):
 
         sys.stdout.write(f'saving to "{avi_filename}"...\n')
         Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=fps, metadata=dict(artist='bs-lab'), bitrate=1800)
+        writer = Writer(fps=FPS, metadata=dict(artist='bs-lab'), bitrate=1800)
         ani.save(avi_filename, writer=writer)
         sys.stdout.write(f'saved to "{avi_filename}"\n')
 
@@ -266,7 +267,7 @@ def make_plot(pucks, avi_filename=""):
         init_plot()
 
         for f in range(len(frame_data[0])):
-            # plt.pause(1/fps)
+            # plt.pause(1/FPS)
             plt.pause(0.04)
             for p, puck in enumerate(pucks):
                 x = frame_data[p][f][0]
@@ -351,7 +352,8 @@ def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
     if new_vel < MIN_VEL:
         new_vel = MIN_VEL
 
-    print(f"  rebound: {degrees(new_angle):8.4f}")
+    if DEBUG_2:
+        print(f"  rebound: {degrees(new_angle):8.4f}")
 
     if DEBUG:
         sys.stdout.write(f'old & new angles {degrees(old_angle)} {degrees(new_angle)}\n')
@@ -439,32 +441,58 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
     dy = pt2[1] - pt1[1]
     dr2 = dx**2 + dy**2
     D = pt1[0]*pt2[1] - pt2[0]*pt1[1]
-    AA = sqrt(circle_radius**2 * dr2 - D**2)
 
-    # one of two intersection points
-    x_int_a = (D * dy + sign(dy)*dx * AA) / (dr2)
-    y_int_a = (-D * dx + abs(dy) * AA) / (dr2)
+    if DEBUG_2:
+        print(f'GLCI: point #1 at: {pt1[0] + circle_center[0]} {pt1[1] + circle_center[1]}')
+        print(f'GLCI: point #2 at: {pt2[0] + circle_center[0]} {pt2[1] + circle_center[1]}')
+        print(f'GLCI: dr2 is {dr2} and D is {D}')
+        print(f'GLCI: circle_radius is {circle_radius}')
+        print(f'GLCI: circle center is {circle_center}')
 
-    # two of two intersection points
-    x_int_b = (D * dy - sign(dy) * dx * AA) / (dr2)
-    y_int_b = (-D * dx - abs(dy) * AA) / (dr2)
+    if dr2 > 0.00001:
+        AA = sqrt(circle_radius**2 * dr2 - D**2)
 
-    # whichever point is closer to pt1 is used
-    dist_a2 = (pt1[0] - x_int_a)**2 + (pt1[1] - y_int_a)**2
-    dist_b2 = (pt1[0] - x_int_b)**2 + (pt1[1] - y_int_b)**2
+        # one of two intersection points
+        x_int_a = (D * dy + sign(dy)*dx * AA) / (dr2)
+        y_int_a = (-D * dx + abs(dy) * AA) / (dr2)
 
-    # print('pt1:', pt1)
-    # print('pt2:', pt2)
-    # print('ctr:', circle_center)
-    # print('intersects at ', x_int_a, y_int_a)
-    # print('           or ', x_int_b, y_int_b)
-    # print('dist_a2:', dist_a2)
-    # print('dist_b2:', dist_b2)
+        # two of two intersection points
+        x_int_b = (D * dy - sign(dy) * dx * AA) / (dr2)
+        y_int_b = (-D * dx - abs(dy) * AA) / (dr2)
 
-    if dist_a2 < dist_b2:
-        return x_int_a + circle_center[0], y_int_a + circle_center[1]
+        # whichever point is closer to pt1 is used
+        dist_a2 = (pt1[0] - x_int_a)**2 + (pt1[1] - y_int_a)**2
+        dist_b2 = (pt1[0] - x_int_b)**2 + (pt1[1] - y_int_b)**2
+
+        if dist_a2 < dist_b2:
+            x_intercept = x_int_a + circle_center[0]
+            y_intercept = y_int_a + circle_center[1]
+            if DEBUG_2:
+                print('GLCI: returning 1st result')
+        else:
+            x_intercept = x_int_b + circle_center[0]
+            y_intercept = y_int_b + circle_center[1]
+            if DEBUG_2:
+                print('GLCI: returning 2nd result')
+
+        # print('pt1:', pt1)
+        # print('pt2:', pt2)
+        # print('ctr:', circle_center)
+        # print('intersects at ', x_int_a, y_int_a)
+        # print('           or ', x_int_b, y_int_b)
+        # print('dist_a2:', dist_a2)
+        # print('dist_b2:', dist_b2)
+
     else:
-        return x_int_b + circle_center[0], y_int_b + circle_center[1]
+        # the two provided points are too close together to get a line segment, so instead
+        #   determine the point on the circle closest to the first point
+        theta = atan2(pt1[1], pt1[0])
+        x_intercept = circle_radius * cos(theta) + circle_center[0]
+        y_intercept = circle_radius * sin(theta) + circle_center[1]
+        if DEBUG_2:
+            print(f'GLCI: points too close. Instead, returning {x_intercept} {y_intercept}')
+
+    return x_intercept, y_intercept
 
 
 # --------------------------------------------------------------------------------------------------
@@ -503,12 +531,14 @@ def update_puck(puck, pucks, t):
         dist_to_center = sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
         if dist_to_center <= (peg.radius + puck.radius + RTOL):
             if dist_to_center < (peg.radius + puck.radius + RTOL):
-                print(f"inside peg!!!!!!!!! {peg.id}")
+                if DEBUG_2:
+                    print(f"{puck.id} inside peg!!!!!!!!! {peg.id}")
+                    print('  old puck coords', x, y)
                 # re-calculate current position so that it is on the surface, not inside
-                print('  old puck coords', x, y)
                 x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
                                                     [x, y], peg.center, peg.radius + puck.radius)
-                print('  new puck coords', x, y)
+                if DEBUG_2:
+                    print('  new puck coords', x, y)
 
             # calculate rebound angle & reduced velocity
             new_angle, new_vel = calc_rebound(new_angle, new_vel, x, y, peg.center, peg.radius)
@@ -524,15 +554,17 @@ def update_puck(puck, pucks, t):
             continue
 
         dist_to_center = sqrt((x - other_puck.x[-1])**2 + (y - other_puck.y[-1])**2)
-        if dist_to_center <= (other_puck.radius + puck.radius + RTOL) and t > 0.5:
+        if dist_to_center <= (other_puck.radius + puck.radius + RTOL) and t > 0.2:
             if dist_to_center < (other_puck.radius + puck.radius + RTOL):
-                print(f"inside other puck!!!!!!!!! {other_puck.id}")
+                if DEBUG_2:
+                    print(f"{puck.id} inside other puck!!!!!!!!! {other_puck.id}")
+                    print('  old puck coords', x, y)
                 # re-calculate current position so that it is on the surface, not inside
-                print('  old puck coords', x, y)
                 x, y = get_line_circle_intersection([puck.x[-1], puck.y[-1]],
                                                     [x, y], [other_puck.x[-1], other_puck.y[-1]],
                                                     other_puck.radius + puck.radius)
-                print('  new puck coords', x, y)
+                if DEBUG_2:
+                    print('  new puck coords', x, y)
 
             # should puck_collision use 'new_angle' and 'new_vel', 'x', and 'y' ???
             new_angle, new_vel, other_angle, other_vel = puck_collision(new_angle, new_vel,
@@ -548,7 +580,7 @@ def update_puck(puck, pucks, t):
     puck.append(t, x, y, new_vel, new_angle)
 
     if DEBUG:
-        sys.stdout.write(f"{t:9.4f} {x:9.4f} {y:9.4f} {degrees(new_angle):9.4f} ")
+        sys.stdout.write(f"{puck.id} {t:9.4f} {x:9.4f} {y:9.4f} {degrees(new_angle):9.4f} ")
         sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
 
     return puck
@@ -573,7 +605,17 @@ if __name__ == "__main__":
         sys.stdout.write("     time         x         y     angle       vel     accel\n")
 
     while True:
+        # end simulation if it is taking too long
         if t > MAX_TIME:
+            sys.stdout.write(f'\nbreaking at time = {t:12.8f}\n\n')
+            break
+
+        # end simulation if all pegs have reached bottom
+        keep_going = False
+        for puck in pucks:
+            if puck.inplay:
+                keep_going = True
+        if not keep_going:
             sys.stdout.write(f'\nbreaking at time = {t:12.8f}\n\n')
             break
 
@@ -596,7 +638,7 @@ if __name__ == "__main__":
         for puck in pucks:
             sys.stdout.write("      time       x-pos       y-pos         vel\n")
             for t, x, y, v in zip(puck.t, puck.x, puck.y, puck.v):
-                sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f}\n")
+                sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f} {puck.id}\n")
             print('maxtime', max(puck.t))
             print('')
 
