@@ -2,18 +2,20 @@ import sys
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from math import atan2, cos, sin, ceil, degrees, pi, sqrt
+import numpy as np
 from scipy import interpolate
 
 # constants
 RTOL = 0.0000001  # m
 GC = 9.81         # m/s^2
 TERM_VEL = 15.    # m/s
-MIN_VEL = 0.05    # m/s
+MIN_VEL = 0.10    # m/s
+TRANSITION_VEL = 0.8  # m/s
 MAX_TIME = 10.0   # s
 DT = 0.0001       # s
 REDUCE_VEL_FACT = 0.6
 REFRESH_FACT = 1.0
-LOWEST_Y = -9
+LOWEST_Y = -10
 DEBUG = False
 DEBUG_2 = False
 PEG_RADIUS = 0.25
@@ -42,10 +44,15 @@ class Peg:
         self.id = xid
 
 
-# class FlatSurface:
-#     def __init__(self):
-#         self.start_pt = []
-#         self.stop_pt = []
+class FlatSurface:
+    def __init__(self, pt1, pt2, xid):
+        self.pt1 = pt1
+        self.pt2 = pt2
+        self.id = xid
+        self.angle = atan2(pt2[1] - pt1[1], pt2[0] - pt1[0])
+        self.vec = [pt2[0] - pt1[0], pt2[1] - pt1[1]]
+        self.mag = np.linalg.norm(self.vec)
+        self.unit_vec = self.vec / self.mag
 
 
 class PuckData:
@@ -59,13 +66,16 @@ class PuckData:
         self.angle = []       # velocity angle (rad)
         self.inplay = True    # false if puck reaches the bottom
         self.final_time = MAX_TIME
+        self.sliding_on = -1
+        self.sliding_list = []
 
-    def append(self, t, x, y, v, a):
+    def append(self, t, x, y, v, a, flat_id):
         self.t.append(t)
         self.x.append(x)
         self.y.append(y)
         self.v.append(v)
         self.angle.append(a)
+        self.sliding_list.append(flat_id)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -109,7 +119,7 @@ def create_puck_spray(num_pucks, first_angle, final_angle):
         pucks.append(PuckData(PUCK_RADIUS, p))
         puck_angle -= del_angle
         print(f'  puck # {p}, angle {degrees(puck_angle):16.12f}')
-        pucks[-1].append(t, x_coord, y_coord, vo, puck_angle)
+        pucks[-1].append(t, x_coord, y_coord, vo, puck_angle, -1)
 
     print('')
 
@@ -136,6 +146,36 @@ def create_puck_shower(num_pucks, left_x, right_x):
         print('p stuff', p, x_coord, y_coord, degrees(launch_angle))
 
     return pucks
+
+
+# --------------------------------------------------------------------------------------------------
+def create_flat_surfaces():
+    """"""
+    lh_wall_x = -7
+    rh_wall_x = 8
+    max_wall_y = 2
+    min_wall_y = -9
+
+    flat_surfaces = []
+
+    # create sides
+    flat_surfaces.append(FlatSurface([lh_wall_x, max_wall_y], [lh_wall_x, min_wall_y], 0))
+    flat_surfaces.append(FlatSurface([rh_wall_x, max_wall_y], [rh_wall_x, min_wall_y], 1))
+
+    # create bottom
+    flat_surfaces.append(FlatSurface([lh_wall_x, min_wall_y], [-1, min_wall_y - 0.5], 2))
+    #flat_surfaces.append(FlatSurface([rh_wall_x, min_wall_y], [2, min_wall_y - 0.5], 3))
+    flat_surfaces.append(FlatSurface([rh_wall_x, min_wall_y], [0, min_wall_y - 0.5], 3))
+
+    flat = FlatSurface([-3, -3], [0, -3.75], 4)
+    # flat = FlatSurface([-3, -3], [0, -4], 4)
+    flat_surfaces.append(flat)
+
+    for flat in flat_surfaces:
+        print(f'  flat angle: {flat.id} {degrees(flat.angle)}')
+    print('')
+
+    return flat_surfaces
 
 
 # --------------------------------------------------------------------------------------------------
@@ -222,11 +262,14 @@ def make_plot(pucks, avi_filename=""):
     # ----------------------------------------------------------------------------------------------
     def init_plot():
         plt.title(f'angle={degrees(launch_angle):12.8f}')
-        plt.xlim(-8, 8)
+        plt.xlim(-9, 9)
         plt.axis('equal')
         for peg in pegs:
             xx, yy = make_circle_points(peg.center, peg.radius)
             plt.plot(xx, yy, 'b')
+
+        for flats in flat_surfaces:
+            plt.plot([flats.pt1[0], flats.pt2[0]], [flats.pt1[1], flats.pt2[1]], 'r')
 
         return puck_dot,
 
@@ -365,6 +408,64 @@ def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
+def calc_rebound_flat(old_angle, old_vel, x, y, flat):
+    """"""
+    new_angle = 2 * flat.angle - old_angle
+    angle_change = new_angle - old_angle
+
+    # reduce the puck velocity arbitrarily by REDUCE_VEL_FACT and the angle of impact
+    new_vel = old_vel * (1 - (1 - REDUCE_VEL_FACT) * abs(sin(angle_change / 2)))
+    if new_vel < MIN_VEL:
+        new_vel = MIN_VEL
+
+    return new_angle, new_vel
+
+
+# --------------------------------------------------------------------------------------------------
+def slide_down_flat(prev_vel, prev_x, prev_y, puck_radius, flat):
+    """"""
+    phi = flat.angle
+    if 0 < phi < pi:
+        phi -= pi
+    a_parallel = abs(GC * sin(phi))
+    curr_vel = prev_vel + a_parallel * DT
+
+    # get normalized ratio of where previous coordinate is projected onto the flat surface
+    pt_vec = [prev_x - flat.pt1[0], prev_y - flat.pt1[1]]
+    sdist = np.dot(flat.unit_vec, pt_vec) / flat.mag
+
+    if DEBUG_2:
+        print(f'  sliding down flat #{flat.id}')
+        print(f'  a_parallel {a_parallel}')
+        print(f'  prev_vel {prev_vel}')
+        print(f'  curr_vel {curr_vel}')
+        print(f'  previous x&y {prev_x} {prev_y}')
+        print(f'  unit vector {flat.unit_vec}')
+        print(f'  flat.angle {degrees(flat.angle)}')
+        print(f'  phi {degrees(phi)}')
+        print(f'  angle used {degrees(pi + phi)}')
+        print(f'  sdist {sdist}')
+
+    # WARNING -- needs cross product to determine if it is plus or minus pi/2
+    # ensure that previous location was on the surface...
+    # pt_on_flat = [flat.pt1[0] + flat.unit_vec[0] * sdist * flat.mag,
+    #               flat.pt1[1] + flat.unit_vec[1] * sdist * flat.mag]
+    # prev_x = puck_radius * cos(phi + pi / 2) + pt_on_flat[0]
+    # prev_y = puck_radius * sin(phi + pi / 2) + pt_on_flat[1]
+    # if DEBUG_2:
+    #     print(f'  pt_on_flat {pt_on_flat}')
+    #     print(f'      now x&y {prev_x} {prev_y}')
+
+    curr_x = prev_x + prev_vel * DT * cos(phi)
+    curr_y = prev_y + prev_vel * DT * sin(phi)
+
+    if DEBUG_2:
+        print(f'  current x&y {curr_x} {curr_y}')
+
+    return phi, curr_vel, curr_x, curr_y, sdist
+
+
+# --------------------------------------------------------------------------------------------------
 def puck_collision(puck_1_angle, puck_1_vel, puck_1_x, puck_1_y, puck_2):
     """
     Calculates the resulting velocities of two pucks after they collide.
@@ -408,6 +509,15 @@ def puck_collision(puck_1_angle, puck_1_vel, puck_1_x, puck_1_y, puck_2):
 
 
 # --------------------------------------------------------------------------------------------------
+def calc_dist_to_object(xy, flat):
+    """"""
+    dist_to_object = abs((flat.vec[1]) * xy[0] - (flat.vec[0]) * xy[1] +
+                         flat.pt2[0] * flat.pt1[1] - flat.pt2[1] * flat.pt1[0]) / flat.mag
+
+    return dist_to_object
+
+
+# --------------------------------------------------------------------------------------------------
 def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
     """
     Returns the intersection point of a line-segment and circle. Since a line intersects a circle
@@ -416,8 +526,8 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
     INPUTS:
     -------
-    pt1           -- first point defning the line segment
-    pt2           -- second point defning the line segment
+    pt1           -- first point defining the line segment
+    pt2           -- second point defining the line segment
     circle_center -- center of the circle
     circle_radius -- radius of the circle
 
@@ -496,6 +606,70 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
+def calc_puck_flat_intersection(pt1, pt2, puck_radius, flat):
+    """"""
+    # distance from previous time step's puck to surface
+    dist_1 = calc_dist_to_object(pt1, flat)
+
+    # distance from current time step's puck to surface
+    dist_2 = calc_dist_to_object(pt2, flat)
+
+    # determine x-value at desired distance
+    if dist_1 - dist_2 > 0.0000001:
+        x_intercept = pt1[0] - (pt1[0] - pt2[0]) * (dist_1 - puck_radius) / (dist_1 - dist_2)
+        y_intercept = pt1[1] - (pt1[1] - pt2[1]) * (dist_1 - puck_radius) / (dist_1 - dist_2)
+
+    else:
+        pt_vec = [pt2[0] - flat.pt1[0], pt2[1] - flat.pt1[1]]
+        sdist = np.dot(flat.unit_vec, pt_vec) / flat.mag
+
+        # get point on flat surface that is closest to pt2
+        pt_on_flat = [flat.pt1[0] + flat.unit_vec[0] * sdist * flat.mag,
+                      flat.pt1[1] + flat.unit_vec[1] * sdist * flat.mag]
+
+        # cross product to determine which side of the flat surface the puck is located
+        in_out = flat.unit_vec[0]*pt_vec[1] - flat.unit_vec[1]*pt_vec[0]
+        if in_out > 0:
+            x_intercept = puck_radius * cos(flat.angle + pi / 2) + pt_on_flat[0]
+            y_intercept = puck_radius * sin(flat.angle + pi / 2) + pt_on_flat[1]
+        else:
+            x_intercept = puck_radius * cos(flat.angle - pi / 2) + pt_on_flat[0]
+            y_intercept = puck_radius * sin(flat.angle - pi / 2) + pt_on_flat[1]
+        # x_intercept = puck_radius * cos(flat.angle + pi / 2) + pt_on_flat[0]
+        # y_intercept = puck_radius * sin(flat.angle + pi / 2) + pt_on_flat[1]
+
+        # print(f'    pt1 {pt1}')
+        # print(f'    pt2 {pt2}')
+        # print(f'    dist_1 {dist_1}')
+        # print(f'    dist_2 {dist_2}')
+        # print(f'    flat pt1 {flat.pt1}')
+        # print(f'    flat pt2 {flat.pt2}')
+        # print(f'    unit_vec {flat.unit_vec}')
+        # print(f'    pt_vec {pt_vec}')
+        # print(f'    sdist {sdist}')
+        # print(f'    pt_on_flat {pt_on_flat}')
+        # print(f'    puck_radius {puck_radius}  flat.angle= {degrees(flat.angle)}')
+        # print(f'    in_out {in_out}')
+        # print(f'    zero div results: {x_intercept} {y_intercept}')
+
+    return x_intercept, y_intercept
+
+
+# --------------------------------------------------------------------------------------------------
+def puck_near_flat(pt, radius, flat):
+    """"""
+    pt_vec = [pt[0] - flat.pt1[0], pt[1] - flat.pt1[1]]
+    sdist = np.dot(flat.unit_vec, pt_vec) / flat.mag
+
+    dist_to_flat = calc_dist_to_object(pt, flat)
+
+    if 0 <= sdist <= 1 and dist_to_flat <= radius + RTOL:
+        return True
+    else:
+        return False
+
+
+# --------------------------------------------------------------------------------------------------
 def update_puck(puck, pucks, t):
     """Updates the PuckData instance based on its projectile motion (and possible ricochets after
        a time interval of DT."""
@@ -505,31 +679,73 @@ def update_puck(puck, pucks, t):
     else:
         accel = GC
 
-    # update the relative position
-    x_rel, y_rel = get_position(puck.v[-1], puck.angle[-1], DT, accel)
+    if puck.sliding_on >= 0:
+        new_angle, new_vel, x, y, sdist = slide_down_flat(puck.v[-1], puck.x[-1], puck.y[-1],
+                                                          puck.radius,
+                                                          flat_surfaces[puck.sliding_on])
+        if sdist > 1:
+            puck.sliding_on = -1
 
-    # update the velocity
-    new_vel = get_velocity(puck.v[-1], puck.angle[-1], DT, accel)
+    else:
+        # update the relative position
+        x_rel, y_rel = get_position(puck.v[-1], puck.angle[-1], DT, accel)
 
-    if new_vel >= TERM_VEL:
-        accel = 0
-        new_vel = TERM_VEL
+        # update the velocity
+        new_vel = get_velocity(puck.v[-1], puck.angle[-1], DT, accel)
 
-        # recalculate relative position based on terminal velocity and no acceleration
-        x_rel, y_rel = get_position(TERM_VEL, puck.angle[-1], DT, accel)
+        if new_vel >= TERM_VEL:
+            accel = 0
+            new_vel = TERM_VEL
 
-    # update velocity's angle
-    x_inc, y_inc = get_position(puck.v[-1], puck.angle[-1], DT - DT / 100, accel)
-    new_angle = atan2(y_rel - y_inc, x_rel - x_inc)
+            # recalculate relative position based on terminal velocity and no acceleration
+            x_rel, y_rel = get_position(TERM_VEL, puck.angle[-1], DT, accel)
 
-    # update the absolute position
-    x = puck.x[-1] + x_rel
-    y = puck.y[-1] + y_rel
+        # update velocity's angle
+        x_inc, y_inc = get_position(puck.v[-1], puck.angle[-1], DT - DT / 100, accel)
+        new_angle = atan2(y_rel - y_inc, x_rel - x_inc)
 
-    # check if position is inside or contacting surface
+        # update the absolute position
+        x = puck.x[-1] + x_rel
+        y = puck.y[-1] + y_rel
+
+    # check if position is inside or contacting flat surface
+    for flat in flat_surfaces:
+        if not puck_near_flat([x, y], puck.radius, flat):
+            continue
+
+        dist_to_flat = calc_dist_to_object([x, y], flat)
+        if dist_to_flat <= puck.radius + RTOL:
+            if new_vel < TRANSITION_VEL:
+                puck.sliding_on = flat.id
+
+            if dist_to_flat < puck.radius + RTOL:
+                if DEBUG_2:
+                    print(f'distance to flat surface = {dist_to_flat}')
+                    print(f'{puck.id} inside surface!!!!!!!!! {flat.id}')
+                    print('  old puck coords', x, y)
+                    print(' new_vel = ', new_vel)
+
+                # re-calculate current position so that it is on the surface, not inside
+                x, y = calc_puck_flat_intersection([puck.x[-1], puck.y[-1]], [x, y],
+                                                   puck.radius, flat)
+                if DEBUG_2:
+                    print('  new puck coords', x, y)
+
+            # calculate rebound angle & reduced velocity
+            if puck.sliding_on < 0:
+                new_angle, new_vel = calc_rebound_flat(new_angle, new_vel, x, y, flat)
+
+            if new_vel < TRANSITION_VEL or puck.sliding_on >= 0:
+                puck.sliding_on = flat.id
+
+        else:
+            puck.sliding_on = -1
+
+    # check if position is inside or contacting peg surface
     for peg in pegs:
         dist_to_center = sqrt((x - peg.center[0])**2 + (y - peg.center[1])**2)
         if dist_to_center <= (peg.radius + puck.radius + RTOL):
+            puck.sliding_on = -1
             if dist_to_center < (peg.radius + puck.radius + RTOL):
                 if DEBUG_2:
                     print(f"{puck.id} inside peg!!!!!!!!! {peg.id}")
@@ -577,11 +793,11 @@ def update_puck(puck, pucks, t):
             #                                   [other_puck.x[-1], other_puck.y[-1]],
             #                                   other_puck.radius)
 
-    puck.append(t, x, y, new_vel, new_angle)
+    puck.append(t, x, y, new_vel, new_angle, puck.sliding_on)
 
     if DEBUG:
-        sys.stdout.write(f"{puck.id} {t:9.4f} {x:9.4f} {y:9.4f} {degrees(new_angle):9.4f} ")
-        sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f}\n")
+        sys.stdout.write(f"---- {puck.id} {t:9.4f} {x:9.4f} {y:9.4f} {degrees(new_angle):9.4f} ")
+        sys.stdout.write(f"{new_vel:9.4f} {accel:9.4f} {puck.sliding_on}\n")
 
     return puck
 
@@ -595,6 +811,7 @@ if __name__ == "__main__":
     y = 0
 
     pegs = create_pegs()
+    flat_surfaces = create_flat_surfaces()
 
     num_pucks = 4
     last_puck_angle = pi - launch_angle - 0.2
@@ -602,7 +819,8 @@ if __name__ == "__main__":
     # pucks = create_puck_shower(num_pucks, -6, 6)
 
     if DEBUG:
-        sys.stdout.write("     time         x         y     angle       vel     accel\n")
+        sys.stdout.write("          time         x         y     angle       vel     accel")
+        sys.stdout.write("  sliding_on\n")
 
     while True:
         # end simulation if it is taking too long
@@ -621,7 +839,7 @@ if __name__ == "__main__":
 
         for p, puck in enumerate(pucks):
             if not puck.inplay:
-                puck.append(t, puck.x[-1], puck.y[-1], puck.v[-1], puck.angle[-1])
+                puck.append(t, puck.x[-1], puck.y[-1], puck.v[-1], puck.angle[-1], -1)
                 continue
             if puck.y[-1] <= LOWEST_Y:
                 sys.stdout.write(f'\npuck # {p} reached bottom at time={t:8.4f}\n\n')
@@ -637,8 +855,8 @@ if __name__ == "__main__":
         # print out results to the screen
         for puck in pucks:
             sys.stdout.write("      time       x-pos       y-pos         vel\n")
-            for t, x, y, v in zip(puck.t, puck.x, puck.y, puck.v):
-                sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f} {puck.id}\n")
+            for t, x, y, v, s in zip(puck.t, puck.x, puck.y, puck.v, puck.sliding_list):
+                sys.stdout.write(f"{t:10.4f} {x:11.8f} {y:11.8f} {v:11.8f} {puck.id} {s}\n")
             print('maxtime', max(puck.t))
             print('')
 
