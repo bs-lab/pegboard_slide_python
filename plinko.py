@@ -1,36 +1,27 @@
 import sys
-from math import atan2, asin, ceil, floor, degrees, pi, sqrt
+from math import atan2, asin, ceil, floor, degrees, radians, pi, sqrt
 import geometry as geom
 import eom
 import plotting
+import inputs
 
 # constants
 TERM_VEL = 15.    # m/s
 TRANSITION_VEL = 0.8  # m/s
-MAX_TIME = 10.0   # s
 DT = 0.0001       # s
 LOWEST_Y = -10
 DEBUG = False
 DEBUG_2 = False
 PEG_RADIUS = 0.25   # m
 PUCK_RADIUS = 0.10  # m
-OUTFILE_MP4 = "outfile.mp4"
 FPS = 30
 DILATION = 2
 
-# user inputs
-VO = 10.0  # m/s
-NUM_PUCKS = 4
-ANGLE = sys.argv[1]
-SHOT_TYPE = 'spray'
-
-launch_angle = float(ANGLE) * pi / 180  # radians
-
 print('INPUTS:')
-print('  launch angle', degrees(launch_angle))
-print('  initial vel ', VO)
+print('  launch angle', inputs.ANGLE)
+print('  initial vel ', inputs.VO)
 print('  terminal vel', TERM_VEL)
-print('  max sim time', MAX_TIME)
+print('  max sim time', inputs.MAX_TIME)
 print('')
 
 
@@ -74,7 +65,7 @@ def create_puck_spray(num_pucks, first_angle):
     safe_time = 0.1
     num_safe_frames = safe_time / DT
 
-    spacing_angle = asin(5 * PUCK_RADIUS / (VO * DT * num_safe_frames))
+    spacing_angle = asin(5 * PUCK_RADIUS / (inputs.VO * DT * num_safe_frames))
     max_pucks_per_sweep = floor(abs(final_angle - first_angle) / spacing_angle) + 1
     # print(f'first_angle {first_angle} {degrees(first_angle)}')
     # print(f'final_angle {final_angle} {degrees(final_angle)}')
@@ -101,10 +92,10 @@ def create_puck_spray(num_pucks, first_angle):
             start_time = s * time_per_sweep - time_between
 
         start_time += time_between
-        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, MAX_TIME, p))
+        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, inputs.MAX_TIME, p))
         puck_angle += spacing_angle
         print(f'  puck #{p}, angle {degrees(puck_angle):14.8f} @ start_time = {start_time:8.4f}')
-        pucks[-1].append(t, x_coord, y_coord, VO, puck_angle, -1)
+        pucks[-1].append(t, x_coord, y_coord, inputs.VO, puck_angle, -1)
 
     print('')
 
@@ -112,7 +103,7 @@ def create_puck_spray(num_pucks, first_angle):
 
 
 # --------------------------------------------------------------------------------------------------
-def create_puck_shower(num_pucks, left_x, right_x):
+def create_puck_shower(num_pucks, left_x, right_x, launch_angle):
     """Creates list of PuckData instances, with evenly spaced launch locations"""
     pucks = []
     if num_pucks > 1:
@@ -126,9 +117,9 @@ def create_puck_shower(num_pucks, left_x, right_x):
     start_time = 0
 
     for p in range(num_pucks):
-        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, MAX_TIME, p))
+        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, inputs.MAX_TIME, p))
         x_coord += x_spacing
-        pucks[-1].append(t, x_coord, y_coord, VO, launch_angle, -1)
+        pucks[-1].append(t, x_coord, y_coord, inputs.VO, launch_angle, -1)
 
     return pucks
 
@@ -166,7 +157,7 @@ def create_block_of_pucks(num_pucks):
             x_coord = x_init
             y_coord += 2 * PUCK_RADIUS + y_spacing
 
-        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, MAX_TIME, p))
+        pucks.append(geom.PuckData(PUCK_RADIUS, start_time, inputs.MAX_TIME, p))
         pucks[-1].append(t, x_coord, y_coord, vel_init, puck_angle, -1)
 
         x_coord += PUCK_RADIUS*2.2
@@ -340,7 +331,8 @@ def update_puck(puck, pucks, flat_surfaces, t):
 # --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     """"""
-    vel = VO
+    launch_angle = radians(float(inputs.ANGLE))
+    vel = inputs.VO
     t = 0
     x = 0
     y = 0
@@ -348,14 +340,14 @@ if __name__ == "__main__":
     pegs = create_pegs()
     flat_surfaces = create_flat_surfaces()
 
-    if SHOT_TYPE == 'spray':
-        pucks = create_puck_spray(NUM_PUCKS, launch_angle)
-    elif SHOT_TYPE == 'shower':
-        pucks = create_puck_shower(NUM_PUCKS, -6, 6)
-    elif SHOT_TYPE == 'block':
-        pucks = create_block_of_pucks(NUM_PUCKS)
+    if inputs.SHOT_TYPE == 'spray':
+        pucks = create_puck_spray(inputs.NUM_PUCKS, launch_angle)
+    elif inputs.SHOT_TYPE == 'shower':
+        pucks = create_puck_shower(inputs.NUM_PUCKS, -6, 6, launch_angle)
+    elif inputs.SHOT_TYPE == 'block':
+        pucks = create_block_of_pucks(inputs.NUM_PUCKS)
     else:
-        sys.stderr.write(f'*** unknown SHOT_TYPE: {SHOT_TYPE} ***\n')
+        sys.stderr.write(f'*** unknown SHOT_TYPE: {inputs.SHOT_TYPE} ***\n')
         raise TypeError
 
     if DEBUG:
@@ -394,7 +386,7 @@ if __name__ == "__main__":
             break
 
         # end simulation if it is taking too long
-        if t >= MAX_TIME:
+        if t >= inputs.MAX_TIME:
             sys.stdout.write(f'\nbreaking at time = {t:12.8f}\n\n')
             break
 
@@ -411,6 +403,6 @@ if __name__ == "__main__":
 
     # create matplotlib figure or mp4 file
     plot_title = f'angle={degrees(launch_angle):12.8f}'
-    plotting.make_plot(pucks, pegs, flat_surfaces, plot_title=plot_title, avi_filename=OUTFILE_MP4,
-                       fps=FPS, dilation=DILATION)
+    plotting.make_plot(pucks, pegs, flat_surfaces, plot_title=plot_title,
+                       avi_filename=inputs.OUTFILE_MP4, fps=FPS, dilation=DILATION)
     # plotting.make_plot(pucks, pegs, flat_surfaces, plot_title=plot_title)
