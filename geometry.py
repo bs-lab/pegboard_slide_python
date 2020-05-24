@@ -4,31 +4,31 @@ import numpy as np
 np.seterr(all='raise')
 
 # constants
-DEBUG = False
-RTOL = 0.0000001  # m
+DEBUG: bool = False
+RTOL: float = 0.0000001  # m
 
 
 # --------------------------------------------------------------------------------------------------
 class Peg:
-    def __init__(self, x, y, r, xid):
-        self.center = (x, y)
+    def __init__(self, x: float, y: float, r: float, xid: int):
+        self.center = [x, y]
         self.radius = r
         self.id = xid
 
 
 class FlatSurface:
-    def __init__(self, pt1, pt2, xid):
+    def __init__(self, pt1: list, pt2: list, xid: int):
         self.pt1 = pt1
         self.pt2 = pt2
         self.id = xid
-        self.angle = atan2(pt2[1] - pt1[1], pt2[0] - pt1[0])
+        self.angle: float = atan2(pt2[1] - pt1[1], pt2[0] - pt1[0])
         self.vec = [pt2[0] - pt1[0], pt2[1] - pt1[1]]
-        self.mag = np.linalg.norm(self.vec)
+        self.mag: float = np.linalg.norm(self.vec)
         self.unit_vec = self.vec / self.mag
 
 
 class PuckData:
-    def __init__(self, radius, max_time, xid):
+    def __init__(self, radius: float, start_time: float, final_time: float, xid: int):
         self.id = xid
         self.radius = radius  # radius (m)
         self.t = []           # time (s)
@@ -36,12 +36,13 @@ class PuckData:
         self.y = []           # y-coordinate (m)
         self.v = []           # velocity (m/s)
         self.angle = []       # velocity angle (rad)
-        self.inplay = True    # false if puck reaches the bottom
-        self.final_time = max_time
-        self.sliding_on = -1
+        self.inplay = False   # false if puck reaches the bottom or has not yet been shot out
+        self.start_time = start_time
+        self.final_time = final_time
+        self.sliding_on: int = -1
         self.sliding_list = []
 
-    def append(self, t, x, y, v, a, flat_id):
+    def append(self, t: float, x: float, y: float, v: float, a: float, flat_id: int):
         self.t.append(t)
         self.x.append(x)
         self.y.append(y)
@@ -51,7 +52,7 @@ class PuckData:
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_dist_to_object(xy, flat):
+def calc_dist_to_object(xy: list, flat) -> float:
     """"""
     dist_to_object = abs((flat.vec[1]) * xy[0] - (flat.vec[0]) * xy[1] +
                          flat.pt2[0] * flat.pt1[1] - flat.pt2[1] * flat.pt1[0]) / flat.mag
@@ -60,7 +61,8 @@ def calc_dist_to_object(xy, flat):
 
 
 # --------------------------------------------------------------------------------------------------
-def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
+def get_line_circle_intersection(pt1: list, pt2: list, circle_center: list,
+                                 circle_radius: float) -> tuple:
     """
     Returns the intersection point of a line-segment and circle. Since a line intersects a circle
     at two locations (unless tangent), the intersect point closer to the start of the line segment
@@ -78,7 +80,7 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
     the x- and y-coordinates of the nearer intersection point
     """
     # ----------------------------------------------------------------------------------------------
-    def sign(x):
+    def sign(x: float) -> int:
         """Helper function, equivalent to numpy.sign"""
         if x < 0:
             return -1
@@ -150,7 +152,7 @@ def get_line_circle_intersection(pt1, pt2, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_puck_flat_intersection(pt1, pt2, puck_radius, flat):
+def calc_puck_flat_intersection(pt1: list, pt2: list, puck_radius: float, flat) -> tuple:
     """
     Returns the intersection point of a puck and line-segment.
 
@@ -214,7 +216,7 @@ def calc_puck_flat_intersection(pt1, pt2, puck_radius, flat):
 
 
 # --------------------------------------------------------------------------------------------------
-def puck_near_flat(pt, radius, flat):
+def puck_near_flat(pt: list, radius: float, flat) -> bool:
     """"""
     pt_vec = [pt[0] - flat.pt1[0], pt[1] - flat.pt1[1]]
     sdist = np.dot(flat.unit_vec, pt_vec) / flat.mag

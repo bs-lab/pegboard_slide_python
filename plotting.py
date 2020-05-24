@@ -6,12 +6,10 @@ from scipy import interpolate
 
 # constants
 DEBUG = False
-FPS = 30
-DILATION = 2
 
 
 # --------------------------------------------------------------------------------------------------
-def make_circle_points(center, radius):
+def make_circle_points(center: list, radius: float) -> tuple:
     """only used for plotting, not analysis"""
     theta = 0
     x = []
@@ -24,11 +22,11 @@ def make_circle_points(center, radius):
         x.append(radius * cos(theta) + center[0])
         y.append(radius * sin(theta) + center[1])
 
-    return(x, y)
+    return x, y
 
 
 # --------------------------------------------------------------------------------------------------
-def align_to_framerate(puck, max_time, framerate, dilation=1.0):
+def align_to_framerate(puck, max_time: float, framerate: int, dilation: float = 1.0) -> list:
     """
     Interpolates the position puck data to align with the mp4 framerate.
 
@@ -66,7 +64,8 @@ def align_to_framerate(puck, max_time, framerate, dilation=1.0):
 
 
 # --------------------------------------------------------------------------------------------------
-def make_plot(pucks, pegs, flat_surfaces, plot_title="", avi_filename=""):
+def make_plot(pucks, pegs, flat_surfaces, plot_title: str = "", avi_filename="", fps=30,
+              dilation=1):
     """Creates either a matplotlib graph or an mp4 file showing the results of the analysis"""
     # ----------------------------------------------------------------------------------------------
     def init_plot():
@@ -97,29 +96,29 @@ def make_plot(pucks, pegs, flat_surfaces, plot_title="", avi_filename=""):
 
     # ----------------------------------------------------------------------------------------------
     fig1 = plt.figure()
-    puck_dot, = plt.plot([], [], 'ro', ms=50 * pucks[0].radius)
+    puck_dot, = plt.plot([], [], 'ro', ms=45*pucks[0].radius)
 
     frame_data = []
     max_time = max([x.final_time for x in pucks])
 
     for puck in pucks:
-        frame_data.append(align_to_framerate(puck, max_time, FPS, dilation=DILATION))
+        frame_data.append(align_to_framerate(puck, max_time, fps, dilation=dilation))
 
     if avi_filename.strip():
         ani = animation.FuncAnimation(fig1, update_plot, zip(*frame_data),
                                       init_func=init_plot, blit=True, save_count=len(frame_data[0]))
 
-        sys.stdout.write(f'saving to "{avi_filename}"...\n')
+        sys.stderr.write(f'saving to "{avi_filename}"...\n')
         Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=FPS, metadata=dict(artist='bs-lab'), bitrate=1800)
+        writer = Writer(fps=fps, metadata=dict(artist='bs-lab'), bitrate=1800)
         ani.save(avi_filename, writer=writer)
-        sys.stdout.write(f'saved to "{avi_filename}"\n')
+        sys.stderr.write(f'saved to "{avi_filename}"\n')
 
     else:
         init_plot()
 
         for f in range(len(frame_data[0])):
-            # plt.pause(1/FPS)
+            # plt.pause(1/fps)
             plt.pause(0.04)
             for p, puck in enumerate(pucks):
                 x = frame_data[p][f][0]

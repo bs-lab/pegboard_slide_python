@@ -6,14 +6,15 @@ np.seterr(all='raise')
 
 # constants
 GC = 9.81         # m/s^2
-MIN_VEL = 0.10    # m/s
+# MIN_VEL = 0.10    # m/s
+MIN_VEL = 0.00    # m/s
 REDUCE_VEL_FACT = 0.6
 DEBUG = False
 DEBUG_2 = False
 
 
 # --------------------------------------------------------------------------------------------------
-def get_position(vel, angle, dt, accel):
+def get_position(vel: float, angle: float, dt: float, accel: float) -> tuple:
     """
     Get puck position using ballistic trajectory equations.
 
@@ -35,7 +36,7 @@ def get_position(vel, angle, dt, accel):
 
 
 # --------------------------------------------------------------------------------------------------
-def get_velocity(v_init, angle, dt, accel):
+def get_velocity(v_init: float, angle: float, dt: float, accel: float) -> float:
     """
     Get puck velocity using ballistic trajectory equations.
 
@@ -56,7 +57,8 @@ def get_velocity(v_init, angle, dt, accel):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
+def calc_rebound(old_angle: float, old_vel: float, x: float, y: float, circle_center: list,
+                 circle_radius: float) -> tuple:
     """
     Calculates the puck velocity after rebounding off of a circular object (like a peg or
       other puck).
@@ -67,7 +69,7 @@ def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
     old_vel       -- puck's velocity magnitude prior to impact with the peg
     x             -- x-coordinate of the puck (whose surface should be on the surface of the peg)
     y             -- y-coordinate of the puck (whose surface should be on the surface of the peg)
-    circle_center -- center location of circular object
+    circle_center -- a list; center location of circular object
     circle_radius -- radius of circular object
 
     RETURNS:
@@ -99,7 +101,7 @@ def calc_rebound(old_angle, old_vel, x, y, circle_center, circle_radius):
 
 
 # --------------------------------------------------------------------------------------------------
-def calc_rebound_flat(old_angle, old_vel, x, y, flat):
+def calc_rebound_flat(old_angle: float, old_vel: float, x: float, y: float, flat) -> tuple:
     """
     Calculates the puck velocity after rebounding off a flat surface.
 
@@ -128,7 +130,8 @@ def calc_rebound_flat(old_angle, old_vel, x, y, flat):
 
 
 # --------------------------------------------------------------------------------------------------
-def slide_down_flat(prev_vel, prev_x, prev_y, puck_radius, dt, flat):
+def slide_down_flat(prev_vel: float, prev_x: float, prev_y: float, puck_radius: float, dt: float,
+                    flat) -> tuple:
     """
     Calculates the position of the puck using the equation, accel = dv / dt
 
@@ -193,7 +196,8 @@ def slide_down_flat(prev_vel, prev_x, prev_y, puck_radius, dt, flat):
 
 
 # --------------------------------------------------------------------------------------------------
-def puck_collision(puck_1_angle, puck_1_vel, puck_1_x, puck_1_y, puck_2):
+def puck_collision(puck_1_angle: float, puck_1_vel: float, puck_1_x: float, puck_1_y: float,
+                   puck_2) -> tuple:
     """
     Calculates the resulting velocities of two pucks after they collide.
 
