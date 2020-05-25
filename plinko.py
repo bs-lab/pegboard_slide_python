@@ -286,6 +286,26 @@ def update_puck(puck, pucks, flat_surfaces, t):
             # calculate rebound angle & reduced velocity
             new_angle, new_vel = eom.calc_rebound(new_angle, new_vel, x, y, peg.center, peg.radius)
 
+            # check if puck is stuck on top of peg
+            if new_vel < 0.01 and y > peg.center[1]:
+                if DEBUG:
+                    print('---------------------------------------')
+                    print(f' id: {puck.id}')
+                    print(f' new_vel: {new_vel:13.8f} (m/s)')
+                    print(f' new_angle: {degrees(new_angle):13.8f} (deg)  {new_angle:13.8f} (rads)')
+                    print(f' puck center: {x:13.8f} {y:13.8f}')
+                    print(f' peg center:  {peg.center[0]:13.8f} {peg.center[1]:13.8f}')
+                    print('---------------------------------------')
+
+                # give the peg a small push...
+                new_vel = 0.4
+                if x < peg.center[0]:
+                    # ...to the left
+                    new_angle = pi
+                else:
+                    # ...to the right
+                    new_angle = 0
+
     # check if position is inside or contacting other pucks
     for other_puck in pucks:
         if other_puck.id == puck.id:
