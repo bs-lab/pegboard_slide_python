@@ -1,6 +1,7 @@
 import sys
 from math import atan2, asin, ceil, floor, degrees, radians, pi, sqrt
 import geometry as geom
+import downsample
 import eom
 import plotting
 import inputs
@@ -8,7 +9,7 @@ import inputs
 # constants
 TERM_VEL = 15.    # m/s
 TRANSITION_VEL = 0.8  # m/s
-DT = 0.0001       # s
+DT = 0.001        # s
 LOWEST_Y = -10
 DEBUG = False
 DEBUG_2 = False
@@ -401,8 +402,13 @@ if __name__ == "__main__":
             print('maxtime', max(puck.t))
             print('')
 
+    # print time history
+    frame_data = downsample.create_frame_data(pucks, fps=FPS, dilation=DILATION)
+    downsample.write_dict_to_file(frame_data, inputs.TIMEHIST_OUTFILE)
+
     # create matplotlib figure or mp4 file
+    frame_list = downsample.convert_to_list_of_lists(frame_data)
     plot_title = f'angle={degrees(launch_angle):12.8f}'
-    plotting.make_plot(pucks, pegs, flat_surfaces, plot_title=plot_title,
-                       avi_filename=inputs.OUTFILE_MP4, fps=FPS, dilation=DILATION)
+    plotting.make_plot(frame_list, pucks, pegs, flat_surfaces, plot_title=plot_title,
+                       avi_filename=inputs.OUTFILE_MP4, fps=FPS)
     # plotting.make_plot(pucks, pegs, flat_surfaces, plot_title=plot_title)
